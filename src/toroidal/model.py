@@ -35,7 +35,9 @@ class ToroidalFractalIntelligence(nn.Module):
         new_atom, operation, confidence = self.encoder(token_ids, context_ids, self.atoms)
         self.state.add_atom_contribution(new_atom.r, new_atom.phi, new_atom.omega, new_atom.E, new_atom.kappa)
         self.atoms.add(new_atom)
-        alpha = self.state.get_field()
+        # The committed state is recurrent memory; use a snapshot so committing
+        # the next state cannot invalidate the autograd graph for this tick.
+        alpha = self.state.get_field().detach().clone()
         alpha_new = self.dynamics.evolve(alpha, input_token=new_atom.r)
         interaction_energy = self.interaction.field_interaction(alpha_new)
         # Explicit toroidal interaction feeds the resulting state.
@@ -64,14 +66,14 @@ class ToroidalFractalIntelligence(nn.Module):
         with torch.no_grad():
             self.state.alpha.copy_(alpha_new.detach())
             self.state.t.add_(self.dynamics.dt)
-        return {"logits": logits, "confidence": conf, "interaction_energy": interaction_energy, "aggregates": aggregates, "abstractions": abstractions, "persistent_state": persistent_state, "operation": operation}
+        return {"logits": logits, "field": alpha_new, "confidence": conf, "interaction_energy": interaction_energy, "aggregates": aggregates, "abstractions": abstractions, "persistent_state": persistent_state, "operation": operation}
 
     def train_step(self, token_ids, target_ids, optimizer, context_ids=None):
         optimizer.zero_grad(set_to_none=True)
         output = self.forward(token_ids, context_ids)
         if target_ids.dim() > 1: target_ids = target_ids[:, -1]
         loss = nn.CrossEntropyLoss()(output["logits"], target_ids)
-        alpha = output["logits"].new_tensor(0.0) + self.state.get_field()
+        alpha = output["field"]
         total_loss = loss + 0.01 * alpha.abs().mean()
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)

@@ -50,6 +50,8 @@ class AggregationEngine(nn.Module):
 
     def aggregate(self, r, phi, omega, E, kappa, M, tau, rho) -> tuple[list[dict], list[list[int]]]:
         tensors = [x.unsqueeze(0) if x.dim() == 1 else x for x in (r, phi, omega, E, kappa, M, tau, rho)]
+        if tensors[0].dim() == 3 and tensors[0].shape[-2] == 1:
+            tensors = [x.squeeze(-2) for x in tensors]
         r, phi, omega, E, kappa, M, tau, rho = tensors
         if r.shape[0] < 2:
             return [], []
