@@ -17,10 +17,13 @@ class ProductionHead(nn.Module):
         if persistent_state is not None:
             state = state + (persistent_state.mean(dim=0) if persistent_state.dim() > 1 else persistent_state)
         if abstractions:
-            reps = [a["pattern"].to(state.device, state.dtype).reshape(-1).mean(dim=0) for a in abstractions]
+            reps = []
+            for a in abstractions:
+                p = a["pattern"].to(state.device, state.dtype)
+                if p.numel() == self.d_model:
+                    reps.append(p.reshape(self.d_model))
             if reps:
-                # Keep abstraction influence bounded so transient state remains primary.
-                state = state + 0.1 * torch.stack(reps).mean()
+                state = state + 0.1 * torch.stack(reps).mean(dim=0)
         logits = self.decoder(state).unsqueeze(0)
         confidence = torch.sigmoid(self.confidence_head(state)).reshape(1)
         return logits, confidence
@@ -33,8 +36,7 @@ class ProductionHead(nn.Module):
         vocab = logits.shape[-1]
         if top_k is not None and top_k > 0 and top_k < vocab:
             values, indices = torch.topk(logits, top_k, dim=-1)
-            filtered = torch.full_like(logits, float("-inf"))
-            logits = filtered.scatter(-1, indices, values)
+            logits = torch.full_like(logits, float("-inf")).scatter(-1, indices, values)
         probs = F.softmax(logits, dim=-1)
         token_id = torch.multinomial(probs.squeeze(0), 1).item()
         return token_id, logits, confidence
