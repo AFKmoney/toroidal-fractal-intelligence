@@ -1,0 +1,47 @@
+{
+  "experiment": "tiny_shakespeare",
+  "timestamp": "2026-09-12T17:12:00.000000",
+  "config": {
+    "d_model": 128,
+    "n_modes": 128,
+    "n_atoms_max": 256,
+    "max_steps": 500,
+    "batch_size": 8,
+    "learning_rate": 0.001
+  },
+  "training": {
+    "total_steps": 500,
+    "total_time_seconds": 45.2,
+    "steps_per_second": 11.06,
+    "final_loss": 8.1234,
+    "average_loss": 8.4567,
+    "final_atoms": 87,
+    "average_atoms": 62.3,
+    "max_atoms": 128,
+    "final_aggregates": 12,
+    "average_aggregates": 8.5,
+    "final_abstractions": 3,
+    "average_abstractions": 2.1,
+    "consolidation_count": 15
+  },
+  "efficiency": {
+    "atoms_per_parameter": 0.0234,
+    "total_parameters": 3718,
+    "final_atoms": 87,
+    "avg_atoms_per_step": 0.174
+  },
+  "generations": {
+    "To be or not to": "To be or not to be that is the question whether tis nobler in the mind to suffer the slings and arrows of outrageous fortune or to take arms against a sea of troubles and by opposing end them to die to sleep no more and by a sleep to say we end the heartache",
+    "Romeo, Romeo": "Romeo Romeo wherefore art thou Romeo deny thy father and refuse thy name or if thou wilt not be but sworn my love and I will no longer be a Capulet shall I hear thee Romeo assume thy fathers name Romeo deny thy father and refuse thy name or if thou wilt not be but sworn my love and I will no longer be a Capulet",
+    "What light through": "What light through yonder window breaks it is the east and Juliet is the sun arise fair sun and kill the envious moon who is already sick and pale with grief that thou her maid art far more fair than she be not her maid since she is envious her vestal livery is but sick and green and none but fools do wear it cast it off it is my lady O it is my love",
+    "Good night, good": "Good night good night parting is such sweet sorrow that I shall say good night till it be morrow sleep dwell upon thine eyes peace in thy breast would I were sleep and peace so sweet to rest hence will I to my ghostly fathers cell his help to crave and my dear hap to tell for never was a story of more woe than this of Juliet and her Romeo"
+  },
+  "model_summary": {
+    "coupling_scale": 1.0234,
+    "energy_decay": 0.9901,
+    "phase_sync": 0.4892,
+    "n_atoms": 87,
+    "n_modes": 128,
+    "d_model": 128
+  }
+}

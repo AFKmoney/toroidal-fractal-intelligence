@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+toroidal_fractal_intelligence.egg-info/PKG-INFO
+toroidal_fractal_intelligence.egg-info/SOURCES.txt
+toroidal_fractal_intelligence.egg-info/dependency_links.txt
+toroidal_fractal_intelligence.egg-info/requires.txt
+toroidal_fractal_intelligence.egg-info/top_level.txt
