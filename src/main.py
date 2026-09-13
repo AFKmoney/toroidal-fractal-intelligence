@@ -1,91 +1,38 @@
-"""
-Main entry point for toroidal fractal intelligence.
-
-Provides:
-  - Training interface
-  - Chat/inference interface
-  - Model loading/saving
-"""
-
+"""Command-line entry point for Toroidal Fractal Intelligence."""
 from __future__ import annotations
 
 import argparse
 import torch
-import json
-from pathlib import Path
 
 from .toroidal.model import ToroidalFractalIntelligence
 from .training.trainer import ToroidalTrainer
 from .io.tokenizer import ToroidalTokenizer
-from .io.data import create_training_dataloader
+from .io.data import load_wikitext
 
 
-def create_model(
-    vocab_size: int = 32000,
-    d_model: int = 256,
-    n_modes: int = 256,
-    n_atoms_max: int = 1024,
-    device: str = "cpu",
-) -> ToroidalFractalIntelligence:
-    """Create a new toroidal fractal intelligence model."""
-    model = ToroidalFractalIntelligence(
-        vocab_size=vocab_size,
-        d_model=d_model,
-        n_modes=n_modes,
-        n_atoms_max=n_atoms_max,
-    )
-    return model.to(device)
+def create_model(vocab_size=32000, d_model=256, n_modes=256, n_atoms_max=1024, device="cpu"):
+    return ToroidalFractalIntelligence(vocab_size, d_model, n_modes, n_atoms_max).to(device)
 
 
-def train(
-    model: ToroidalFractalIntelligence,
-    dataset_name: str = "wikitext",
-    dataset_subset: str = "wikitext-2-raw-v1",
-    batch_size: int = 32,
-    max_steps: int = 10000,
-    learning_rate: float = 3e-4,
-    save_dir: str = "./checkpoints",
-    device: str = "cpu",
-) -> dict:
-    """Train the model."""
-    # Create dataloader
-    dataloader = create_training_dataloader(
-        dataset_name=dataset_name,
-        subset=dataset_subset,
-        batch_size=batch_size,
-        infinite=True,
-    )
-
-    # Create optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=0.01,
-    )
-
-    # Create trainer
-    trainer = ToroidalTrainer(
-        model=model,
-        dataloader=dataloader,
-        optimizer=optimizer,
-        save_dir=save_dir,
-    )
-
-    # Train
+def train(model, dataset_name="wikitext", dataset_subset="wikitext-2-raw-v1",
+          batch_size=32, max_steps=10000, learning_rate=3e-4,
+          save_dir="./checkpoints", device="cpu"):
+    if dataset_name != "wikitext":
+        raise ValueError("The current reference trainer supports dataset='wikitext'. Use load_custom_text/load_from_file for other sources.")
+    dataloader = load_wikitext(subset=dataset_subset, seq_len=128)
+    dataloader.batch_size = batch_size
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
+    trainer = ToroidalTrainer(model, dataloader, optimizer, save_dir=save_dir)
     print("=" * 60)
     print("TOROIDAL FRACTAL INTELLIGENCE — TRAINING")
     print("=" * 60)
-    print(f"Model config: d_model={model.encoder.d_model}, "
-          f"n_modes={model.state.n_modes}, "
-          f"n_atoms_max={model.encoder.n_atoms_max}")
+    print(f"Model config: d_model={model.encoder.d_model}, n_modes={model.state.n_modes}, n_atoms_max={model.encoder.n_atoms_max}")
     print(f"Dataset: {dataset_name}/{dataset_subset}")
     print(f"Batch size: {batch_size}")
     print(f"Max steps: {max_steps}")
     print(f"Learning rate: {learning_rate}")
     print("=" * 60)
-
     result = trainer.train(max_steps=max_steps)
-
     print("=" * 60)
     print("TRAINING COMPLETE")
     print(f"Final loss: {result['final_loss']:.4f}")
@@ -93,77 +40,40 @@ def train(
     print(f"Total steps: {result['total_steps']}")
     print(f"Total time: {result['total_time']:.1f}s")
     print("=" * 60)
-
     return result
 
 
-def chat(
-    model: ToroidalFractalIntelligence,
-    tokenizer: ToroidalTokenizer,
-    prompt: str,
-    max_length: int = 200,
-    temperature: float = 1.0,
-    top_k: int = 50,
-) -> str:
-    """Generate text from a prompt."""
+def chat(model, tokenizer, prompt, max_length=200, temperature=1.0, top_k=50):
     model.eval()
-
-    # Encode prompt
     prompt_ids = tokenizer.encode(prompt, return_tensor=True)
-
-    # Generate
     with torch.no_grad():
-        generated = model.generate(
-            prompt_ids,
-            max_length=max_length,
-            temperature=temperature,
-            top_k=top_k,
-        )
-
-    # Decode
+        generated = model.generate(prompt_ids, max_length=max_length, temperature=temperature, top_k=top_k)
     return tokenizer.decode(generated)
 
 
-def interactive_chat(model: ToroidalFractalIntelligence, tokenizer: ToroidalTokenizer) -> None:
-    """Interactive chat loop."""
-    print("=" * 60)
+def interactive_chat(model, tokenizer):
     print("TOROIDAL FRACTAL INTELLIGENCE — INTERACTIVE MODE")
     print("Type 'quit' to exit, 'status' for model info, 'save' to save")
-    print("=" * 60)
-
     while True:
         try:
             user_input = input("\nYou: ").strip()
             if user_input.lower() == "quit":
                 break
             if user_input.lower() == "status":
-                summary = model.get_shared_params_summary()
-                print(f"\nModel status:")
-                print(f"  Atoms: {summary['n_atoms']}")
-                print(f"  Modes: {summary['n_modes']}")
-                print(f"  d_model: {summary['d_model']}")
-                print(f"  Coupling scale: {summary['coupling_scale']:.4f}")
-                print(f"  Energy decay: {summary['energy_decay']:.4f}")
-                print(f"  Phase sync: {summary['phase_sync']:.4f}")
-                continue
-            if user_input.lower() == "save":
+                s = model.get_shared_params_summary()
+                print(f"Atoms={s['n_atoms']} Modes={s['n_modes']} d_model={s['d_model']} Coupling={s['coupling_scale']:.4f} Decay={s['energy_decay']:.4f} PhaseSync={s['phase_sync']:.4f}")
+            elif user_input.lower() == "save":
                 model.save("interactive_model.pt")
                 print("Model saved to interactive_model.pt")
-                continue
-
-            if user_input:
-                print("\nThoughts:", end=" ")
-                response = chat(model, tokenizer, user_input)
-                print(response)
-
+            elif user_input:
+                print("\nThoughts:", chat(model, tokenizer, user_input))
         except KeyboardInterrupt:
-            print("\nExiting...")
             break
         except Exception as e:
             print(f"\nError: {e}")
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(description="Toroidal Fractal Intelligence")
     parser.add_argument("--mode", choices=["train", "chat", "interactive"], default="train")
     parser.add_argument("--dataset", default="wikitext")
@@ -179,45 +89,16 @@ def main() -> None:
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--prompt", default="Once upon a time")
     parser.add_argument("--device", default="cpu")
-
     args = parser.parse_args()
-
-    # Create or load model
+    model = create_model(args.vocab_size, args.d_model, args.n_modes, args.n_atoms_max, args.device)
     if args.checkpoint:
-        model = create_model(
-            vocab_size=args.vocab_size,
-            d_model=args.d_model,
-            n_modes=args.n_modes,
-            n_atoms_max=args.n_atoms_max,
-            device=args.device,
-        )
         model.load(args.checkpoint)
-    else:
-        model = create_model(
-            vocab_size=args.vocab_size,
-            d_model=args.d_model,
-            n_modes=args.n_modes,
-            n_atoms_max=args.n_atoms_max,
-            device=args.device,
-        )
-
     tokenizer = ToroidalTokenizer("gpt2")
-
     if args.mode == "train":
-        train(
-            model=model,
-            dataset_name=args.dataset,
-            dataset_subset=args.dataset_subset,
-            batch_size=args.batch_size,
-            max_steps=args.max_steps,
-            learning_rate=args.learning_rate,
-            save_dir=args.save_dir,
-            device=args.device,
-        )
+        train(model, args.dataset, args.dataset_subset, args.batch_size, args.max_steps, args.learning_rate, args.save_dir, args.device)
     elif args.mode == "chat":
-        response = chat(model, tokenizer, args.prompt)
-        print(f"\nResponse: {response}")
-    elif args.mode == "interactive":
+        print(f"\nResponse: {chat(model, tokenizer, args.prompt)}")
+    else:
         interactive_chat(model, tokenizer)
 
 
