@@ -67,10 +67,15 @@ class AggregationEngine(nn.Module):
         coherence : torch.Tensor [N, N]
         """
         # Phase difference (wrapped)
-        phi_diff = torch.remainder(phi.unsqueeze(1) - phi.unsqueeze(0), 2 * torch.pi)
-        # Coherence = cos(phase_diff) * geometric_mean(energy)
-        cos_diff = torch.cos(phi_diff)
-        E_geom = (E.unsqueeze(1) * E.unsqueeze(0)).sqrt()
+        # Compute phase difference
+        # phi: [N, d_model], need [N, N, d_model]
+        phi1 = phi.unsqueeze(1)  # [N, 1, d_model]
+        phi2 = phi.unsqueeze(0)  # [1, N, d_model]
+        phi_diff = torch.remainder(phi1 - phi2, 2 * torch.pi)  # [N, N, d_model]
+        
+        # Coherence = mean(cos(phase_diff)) * geometric_mean(energy)
+        cos_diff = torch.cos(phi_diff).mean(dim=-1)  # [N, N]
+        E_geom = (E.unsqueeze(1) * E.unsqueeze(0)).sqrt().mean(dim=-1)  # [N, N]
         coherence = cos_diff * E_geom
         return coherence
 
@@ -114,7 +119,7 @@ class AggregationEngine(nn.Module):
 
             while queue:
                 node = queue.pop(0)
-                cluster.append(node.item())
+                cluster.append(int(node) if isinstance(node, torch.Tensor) else node)
 
                 neighbors = mask[node] & ~visited
                 visited[neighbors] = True

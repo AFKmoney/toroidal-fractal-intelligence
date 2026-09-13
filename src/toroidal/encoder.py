@@ -59,12 +59,11 @@ class ToroidalEncoder(nn.Module):
         self.pos_embedding = nn.Embedding(n_atoms_max, d_model)
 
         # Mapping network: token_emb + pos -> atom_properties
+        # COMPACT: d_hidden = d_model for efficiency
         self.mapping = nn.Sequential(
-            nn.Linear(d_model, d_hidden),  # Only token embedding, no context concat
+            nn.Linear(d_model, d_model),  # Compact: no expansion
             nn.GELU(),
-            nn.Linear(d_hidden, d_hidden),
-            nn.GELU(),
-            nn.Linear(d_hidden, 8 * d_model),  # 8 primitives * d_model each
+            nn.Linear(d_model, 8 * d_model),  # 8 primitives * d_model each
         )
 
         # Operation gate: decides CREATE / MODIFY / MERGE / REINFORCE / ...
@@ -80,6 +79,9 @@ class ToroidalEncoder(nn.Module):
             "energy_decay": nn.Parameter(torch.tensor(0.99)),
             "phase_sync_strength": nn.Parameter(torch.tensor(0.5)),
         })
+        
+        # Atom reuse threshold (for MODIFY vs CREATE decision)
+        self.reuse_threshold = nn.Parameter(torch.tensor(0.7))
 
     def forward(
         self,
@@ -131,9 +133,13 @@ class ToroidalEncoder(nn.Module):
         return new_atom, operation, confidence
 
     def get_shared_params(self) -> dict:
-        return {k: v.clone() for k, v in self.theta_shared.items()}
+        params = {k: v.clone() for k, v in self.theta_shared.items()}
+        params["reuse_threshold"] = self.reuse_threshold.clone()
+        return params
 
     def load_shared_params(self, params: dict) -> None:
         for k, v in params.items():
             if k in self.theta_shared:
                 self.theta_shared[k].data.copy_(v)
+            elif k == "reuse_threshold":
+                self.reuse_threshold.data.copy_(v)

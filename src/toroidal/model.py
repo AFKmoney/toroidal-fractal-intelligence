@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from .encoder import ToroidalEncoder
@@ -118,13 +119,26 @@ class ToroidalFractalIntelligence(nn.Module):
             token_ids, context_ids, self.atoms
         )
 
-        # 2. Add to superposition
+        # 2. Add to superposition (with atom reuse via MODIFY/MERGE)
         if new_atom is not None:
-            self.state.add_atom_contribution(
-                new_atom.r, new_atom.phi, new_atom.omega,
-                new_atom.E, new_atom.kappa,
-            )
-            self.atoms.add(new_atom)
+            # Check if we should MODIFY an existing atom
+            should_modify = operation.argmax(dim=-1) == 1  # MODIFY = index 1
+            
+            if should_modify and len(self.atoms) > 0:
+                # Find nearest atom by phase similarity
+                nearest_idx = self.find_nearest_atom(new_atom.phi)
+                self.atoms.modify(nearest_idx, new_atom)
+                self.state.add_atom_contribution(
+                    new_atom.r, new_atom.phi, new_atom.omega,
+                    new_atom.E, new_atom.kappa, modify=True
+                )
+            else:
+                # Create new atom
+                self.state.add_atom_contribution(
+                    new_atom.r, new_atom.phi, new_atom.omega,
+                    new_atom.E, new_atom.kappa,
+                )
+                self.atoms.add(new_atom)
 
         # 3. RK4 dynamics evolution
         alpha = self.state.get_field()
@@ -343,6 +357,24 @@ class ToroidalFractalIntelligence(nn.Module):
         self.training_loss = checkpoint.get("training_loss", 0.0)
         self.consolidation_count = checkpoint.get("consolidation_count", 0)
         self.abstraction_count = checkpoint.get("abstraction_count", 0)
+
+    def find_nearest_atom(self, phi: torch.Tensor) -> int:
+        """Find the nearest existing atom by phase similarity."""
+        if len(self.atoms) == 0:
+            return 0
+        
+        # Compute phase similarity with all atoms
+        atom_phis = self.atoms.phi  # [n_atoms, d_model]
+        target_phi = phi[0] if phi.dim() > 1 else phi  # [d_model]
+        
+        # Cosine similarity
+        similarity = F.cosine_similarity(
+            atom_phis, 
+            target_phi.unsqueeze(0),
+            dim=-1
+        )  # [n_atoms]
+        
+        return similarity.argmax().item()
 
     def get_shared_params_summary(self) -> dict:
         """Get a summary of shared parametersTheta."""

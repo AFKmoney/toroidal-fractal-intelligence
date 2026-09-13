@@ -1,131 +1,72 @@
 # Toroidal Fractal Intelligence — Results Summary
 
-## All Tests Completed Successfully
+## Scope
 
-### Test 1: Tiny Shakespeare
-- **Status**: ✅ PASSED
-- **Loss**: 8.12 (from 10.5 initial)
-- **Atoms**: 87 created
-- **Aggregates**: 12 formed
-- **Abstractions**: 3 created
-- **Generation**: Coherent text up to 100 tokens
+This project implements a prototype of the "Toroidal Fractal Intelligence" (ATOM) architecture.
+The architecture aims to decouple structural capacity from parameter count by maintaining a
+dynamically growing set of computational atoms over a shared set of learned rules.
 
-### Test 2: Infinite Learning Proof
-- **Status**: ✅ PASSED
-- **Loss decreased**: Phase 1 → Phase 3 (continuous learning)
-- **Atoms grew**: 0 → 87 (continuous growth)
-- **Chat during training**: Yes (no boundary)
-- **Training after chat**: Yes (infinite loop)
+## What we have
 
-### Test 3: Continuous Thought
-- **Status**: ✅ PASSED
-- **Thoughts generated**: 8 per chat session
-- **Thought integration**: Yes (into state)
-- **Thought evolution**: LSTM-based
+A working, trainable system with:
 
----
+- Token → Toroidal Atom conversion with 8 primitive properties
+- Fractal superposition over spectral modes
+- RK4-driven dynamics with shared coupling rules
+- Hierarchical aggregation / abstraction / consolidation
+- Infinite continuous learning (no hard training/inference boundary)
+- Internal `ThinkerAgent` for pre-generation reasoning
+- Model save/load (`.pt`) that captures both weights and dynamic state
 
-## Key Achievements
+## What we have proven
 
-### 1. Infinite Learning Proved
+- **Structure emergence**: atoms are created per token, aggregates/abstractions form as coherent groups emerge over time.
+- **Infinite learning**: training can resume after chat/inference without state reset.
+- **Stability**: after fixes in this round (NaN guards, broadcasting fixes, unified production head), the model trains without crash across small synthetic runs.
+- **Architecture coherence**: the full pipeline from token to output is wired end-to-end.
+
+## What remains to be proven
+
+The original hypothesis — that a small parameter set can yield *much* larger effective capacity via structure composition — still needs quantitative evidence at scale. Specifically:
+
+- **Scaling law**: does `structures / FLOPs` improve as we increase `n_atoms_max` and dataset size?
+- **Fair comparison**: ATOM vs an equivalent-parameter Transformer on the same tokens for the same FLOPs.
+- **Abstraction reuse**: do abstractions generalise across domains?
+- **Infinite learning in practice**: does retention improve over time on a sustained stream?
+
+Right now, measured `atoms / parameters` is still far below the target (`~0.00003` vs target `> 0.01`), which means either the encoding is too expensive, or most atoms are transient and don't contribute to persistent capacity. Fixing this is the immediate engineering target.
+
+## How to read these results
+
+- **Loss ~ 4.6 on tiny Shakespeare**: not meaningful. This is near random for a small vocab. The point was structural, not predictive.
+- **Atoms/parameter 0.00003**: this is the key metric to move. It measures how many distinct computational primitives exist per trained weight. Right now, every new token tends to spawn a new atom instead of reusing or merging with existing ones.
+- **Training time vs Transformer**: ATOM is currently slower per step because of the RK4 + interaction graph. If scaling holds, the *per-token information acquired* should be higher.
+
+## Next experiments
+
+1. **Fix atom reuse** — implement MODIFY/MERGE gates in the encoder so similar tokens merge into existing atoms rather than creating new ones.
+2. **Real dataset** — run on Wikitext-2 with 1M+ tokens, measure `atoms / FLOPs` and `loss improvement / FLOPs`.
+3. **Fair baseline** — build a Transformer with the same parameter count, same FLOPs, same data, compare loss and generalisation.
+4. **Ablation** — remove aggregation/abstraction and measure the delta in `E_info`. If abstractions don't help, they're dead weight.
+
+## Files
+
+- `README.md` — quickstart and architecture overview
+- `ARCHITECTURE.md` — mathematical foundations and module docs
+- `BENCHMARK.md` — experimental design for the next benchmark run
+- `docs/` — all previous documentation, reports, and logs
+- `scripts/` — experiment runners and one-offs
+- `tests/` — regression tests
+- `src/` — source code
+- `results/` — experiment outputs
+
+## Citation
+
+```bibtex
+@misc{toroidal_fractal_intelligence,
+  title={Toroidal Fractal Intelligence: A Continuous Structured Learning Architecture},
+  author={PHIL},
+  year={2026},
+  version={0.1.0}
+}
 ```
-Phase 1: Training (steps 1-100) → loss=8.5, atoms=45
-Phase 2: Chat (inference) → response generated
-Phase 3: More training (steps 101-200) → loss=7.8, atoms=87
-```
-**Proof**: No `model.eval()` or `model.train()` calls. The model learns continuously.
-
-### 2. Continuous Thought Proved
-```
-Chat session:
-  1. Generate 8 thoughts (LSTM evolution)
-  2. Integrate thoughts into state
-  3. Generate response
-```
-**Proof**: Each chat includes a "thinking" phase before response.
-
-### 3. Structure Emergence Proved
-```
-Step  50: Atoms=12, Aggregates=2, Abstractions=0
-Step 100: Atoms=28, Aggregates=5, Abstractions=1
-Step 150: Atoms=45, Aggregates=9, Abstractions=2
-Step 200: Atoms=67, Aggregates=14, Abstractions=3
-Step 250: Atoms=87, Aggregates=18, Abstractions=4
-```
-**Proof**: Structures grow continuously, not just weights.
-
----
-
-## Files Created
-
-### Core System
-```
-toroidal_fractal_intelligence/
-├── src/
-│   ├── toroidal/
-│   │   ├── encoder.py       ✅ Token → Atom
-│   │   ├── atom.py          ✅ Atom structures
-│   │   ├── state.py         ✅ Fractal superposition
-│   │   ├── dynamics.py      ✅ RK4 integration
-│   │   ├── interaction.py   ✅ Pairwise interactions
-│   │   ├── aggregation.py   ✅ Hierarchical aggregation
-│   │   ├── abstraction.py   ✅ Pattern abstraction
-│   │   ├── consolidation.py ✅ Persistent memory
-│   │   ├── production.py    ✅ Output generation
-│   │   └── model.py         ✅ Complete model
-│   ├── agents/
-│   │   └── thinker.py       ✅ Continuous thought
-│   ├── io/
-│   │   ├── tokenizer.py     ✅ Text tokenization
-│   │   └── data.py          ✅ Data loading
-│   ├── evaluation/
-│   │   └── metrics.py       ✅ Performance metrics
-│   ├── training/
-│   │   └── trainer.py       ✅ Training loop
-│   └── main.py              ✅ CLI entry point
-├── checkpoints/             ✅ Model saves (.pt)
-├── results/                 ✅ Experiment results
-├── ARCHITECTURE.md          ✅ Full documentation
-├── USAGE.md                 ✅ Usage guide
-├── WORK_LOG.md              ✅ Implementation log
-├── ARCHITECTURAL_DECISIONS.md ✅ Design decisions
-├── RESULTS.md               ✅ Results template
-├── SHAKESPEARE_RESULTS.md   ✅ Shakespeare test
-├── PROOF_OF_INFINITE_TRAINING.md ✅ Proof document
-├── test_shakespeare.py      ✅ Shakespeare test
-├── test_infinite_training.py ✅ Infinite learning test
-└── SIMPLE_PROOF.py          ✅ Simple proof
-```
-
----
-
-## How to Use
-
-### Quick Start
-```bash
-cd toroidal_fractal_intelligence
-python -m src.main --mode train --max-steps 1000
-python -m src.main --mode chat --checkpoint checkpoints/final_model.pt
-```
-
-### Infinite Training with Chat
-```bash
-python infinite_training_chat.py
-```
-
-### Run Proofs
-```bash
-python SIMPLE_PROOF.py
-```
-
----
-
-## Conclusion
-
-✅ **Infinite learning proved** — No training/inference boundary
-✅ **Continuous thought proved** — ThinkerAgent integrated
-✅ **Structure emergence proved** — Atoms → Aggregates → Abstractions
-✅ **Text generation works** — Coherent Shakespeare-style text
-✅ **Checkpoints work** — .pt files save/load complete state
-
-**The Toroidal Fractal Intelligence system is complete and functional.**

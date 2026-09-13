@@ -138,6 +138,23 @@ class ToroidalAtomCollection(nn.Module):
         self.atoms.append(atom)
         self._rebuild_buffers()
 
+    def modify(self, idx: int, new_atom: ToroidalAtom) -> None:
+        """Modify an existing atom at index by blending properties."""
+        if 0 <= idx < len(self.atoms):
+            old = self.atoms[idx]
+            # Blend 70% old + 30% new
+            self.atoms[idx] = ToroidalAtom(
+                r=0.7 * old.r + 0.3 * new_atom.r,
+                phi=0.7 * old.phi + 0.3 * new_atom.phi,
+                omega=0.7 * old.omega + 0.3 * new_atom.omega,
+                E=0.7 * old.E + 0.3 * new_atom.E,
+                kappa=0.7 * old.kappa + 0.3 * new_atom.kappa,
+                M=0.7 * old.M + 0.3 * new_atom.M,
+                tau=0.7 * old.tau + 0.3 * new_atom.tau,
+                rho=old.rho,  # Keep hierarchical level
+            )
+            self._rebuild_buffers()
+
     def extend(self, atoms: list[ToroidalAtom]) -> None:
         self.atoms.extend(atoms)
         self._rebuild_buffers()
