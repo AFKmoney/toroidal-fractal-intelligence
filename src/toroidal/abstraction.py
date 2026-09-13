@@ -1,176 +1,69 @@
-"""
-AbstractionEngine: extracts higher-level patterns from aggregates.
-
-Design choice: abstraction is performed by:
-  - Finding common properties across aggregates
-  - Creating a compressed representation that captures the regularity
-  - Storing abstractions as reusable templates
-
-Abstractions are *contextual* and *dynamic* — they can be created and
-discarded based on utility.
-"""
-
+"""Extract reusable higher-level patterns from toroidal aggregates."""
 from __future__ import annotations
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class AbstractionEngine(nn.Module):
-    """
-    Extracts abstract patterns from aggregated structures.
-
-    Attributes
-    ----------
-    d_model : int
-    abstraction_capacity : int
-        Maximum number of concurrent abstractions.
-    """
-
     def __init__(self, d_model: int = 256, abstraction_capacity: int = 64) -> None:
         super().__init__()
         self.d_model = d_model
         self.abstraction_capacity = abstraction_capacity
+        self.register_buffer("abstraction_memory", torch.zeros(abstraction_capacity, d_model))
+        self.register_buffer("abstraction_usage", torch.zeros(abstraction_capacity))
+        self.register_buffer("abstraction_age", torch.zeros(abstraction_capacity, dtype=torch.long))
 
-        # Abstraction memory (learnable templates)
-        self.abstraction_memory = nn.Parameter(
-            torch.randn(abstraction_capacity, d_model) * 0.1
-        )
-
-        # Encoder for creating new abstractions
-        self.abstraction_encoder = nn.Sequential(
-            nn.Linear(d_model * 2, d_model),
-            nn.GELU(),
-            nn.Linear(d_model, d_model),
-        )
-
-        # Similarity matcher
-        self.similarity_head = nn.Sequential(
-            nn.Linear(d_model, 64),
-            nn.GELU(),
-            nn.Linear(64, 1),
-        )
-
-    def compute_pattern(
-        self,
-        aggregates: list[dict],
-    ) -> torch.Tensor | None:
-        """
-        Compute an abstract pattern from a list of aggregates.
-
-        Parameters
-        ----------
-        aggregates : list of dict
-            Each dict has keys: r, phi, omega, E, kappa, M, tau, rho
-
-        Returns
-        -------
-        pattern : torch.Tensor [d_model] or None
-        """
+    def compute_pattern(self, aggregates: list[dict]) -> torch.Tensor | None:
         if not aggregates:
             return None
-
-        # Extract common properties
-        props = {}
-        for key in ["r", "phi", "omega", "E", "kappa", "M", "tau"]:
-            values = torch.stack([a[key] for a in aggregates])
-            props[key] = values.mean(dim=0)
-
-        # Compute pattern from common properties
-        combined = torch.cat([
-            props["r"], props["phi"], props["omega"],
-            props["E"], props["M"],
-        ])
-
-        pattern = self.abstraction_encoder(combined)
+        # Structural signature: retain all primitive information without a learned
+        # Transformer-like projection. Normalize each property before fusion.
+        parts = []
+        for key in ("r", "phi", "omega", "E", "kappa", "M", "tau"):
+            x = torch.stack([a[key] for a in aggregates]).mean(dim=0)
+            parts.append(F.normalize(x, dim=-1) if key in ("r", "M") else x)
+        pattern = sum(parts) / len(parts)
         return F.normalize(pattern, dim=-1)
 
-    def match_abstraction(
-        self,
-        pattern: torch.Tensor,
-    ) -> tuple[int, float]:
-        """
-        Find the best matching abstraction in memory.
+    def match_abstraction(self, pattern: torch.Tensor) -> tuple[int, float]:
+        if self.abstraction_capacity == 0:
+            return -1, -1.0
+        p = F.normalize(pattern.reshape(1, -1), dim=-1)
+        mem = F.normalize(self.abstraction_memory, dim=-1)
+        similarities = (p @ mem.T).squeeze(0)
+        # Empty slots are never selected as existing abstractions.
+        similarities = similarities.masked_fill(self.abstraction_usage <= 0, -1.0)
+        idx = similarities.argmax().item()
+        return idx, similarities[idx].item()
 
-        Parameters
-        ----------
-        pattern : torch.Tensor [d_model]
-
-        Returns
-        -------
-        best_idx : int
-        similarity : float
-        """
-        if pattern.dim() == 1:
-            pattern = pattern.unsqueeze(0)
-
-        # Compute similarities
-        similarities = F.cosine_similarity(
-            pattern, self.abstraction_memory, dim=-1
-        )
-
-        best_idx = similarities.argmax().item()
-        best_sim = similarities.max().item()
-
-        return best_idx, best_sim
-
-    def create_or_update_abstraction(
-        self,
-        aggregates: list[dict],
-        threshold: float = 0.8,
-    ) -> int:
-        """
-        Create a new abstraction or update an existing one.
-
-        Parameters
-        ----------
-        aggregates : list of dict
-        threshold : float
-            Similarity threshold for reusing an existing abstraction.
-
-        Returns
-        -------
-        abstraction_id : int
-        """
+    def create_or_update_abstraction(self, aggregates: list[dict], threshold: float = 0.8) -> int:
         pattern = self.compute_pattern(aggregates)
         if pattern is None:
             return -1
-
         best_idx, best_sim = self.match_abstraction(pattern)
+        with torch.no_grad():
+            if best_idx >= 0 and best_sim >= threshold:
+                self.abstraction_memory[best_idx].mul_(0.9).add_(0.1 * pattern)
+                self.abstraction_usage[best_idx].add_(1)
+                self.abstraction_age[best_idx].zero_()
+                return best_idx
+            free = torch.nonzero(self.abstraction_usage <= 0, as_tuple=False).flatten()
+            if free.numel():
+                idx = free[0].item()
+            else:
+                # Replace the least-used/oldest representation, never overwrite all memory.
+                score = self.abstraction_usage + 0.01 * self.abstraction_age.float()
+                idx = score.argmin().item()
+            self.abstraction_memory[idx].copy_(pattern)
+            self.abstraction_usage[idx] = 1
+            self.abstraction_age[idx] = 0
+            return idx
 
-        if best_sim > threshold:
-            # Update existing abstraction (exponential moving average)
-            with torch.no_grad():
-                self.abstraction_memory.data[best_idx] = (
-                    0.9 * self.abstraction_memory.data[best_idx]
-                    + 0.1 * pattern.squeeze(0)
-                )
-            return best_idx
-        else:
-            # Create new abstraction (circular buffer)
-            next_idx = len(self.abstraction_memory) % self.abstraction_capacity
-            with torch.no_grad():
-                self.abstraction_memory.data[next_idx] = pattern.squeeze(0)
-            return next_idx
+    def step_age(self) -> None:
+        with torch.no_grad():
+            self.abstraction_age.add_(1)
 
-    def get_active_abstractions(
-        self,
-        min_similarity: float = 0.5,
-    ) -> list[dict]:
-        """
-        Get all abstractions above a similarity threshold.
-
-        Returns
-        -------
-        abstractions : list of dict
-        """
-        abstractions = []
-        for i in range(self.abstraction_capacity):
-            vec = self.abstraction_memory[i]
-            if vec.norm() > min_similarity:
-                abstractions.append({
-                    "id": i,
-                    "pattern": vec.detach().cpu(),
-                })
-        return abstractions
+    def get_active_abstractions(self, min_similarity: float = 0.5) -> list[dict]:
+        active = torch.nonzero(self.abstraction_usage > 0, as_tuple=False).flatten().tolist()
+        return [{"id": i, "pattern": self.abstraction_memory[i].detach().cpu()} for i in active]
