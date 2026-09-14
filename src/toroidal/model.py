@@ -90,14 +90,18 @@ class ToroidalFractalIntelligence(nn.Module):
             if token_id == 2: break
         return generated
 
-    def save(self, path):
-        torch.save({"encoder": self.encoder.state_dict(), "state": self.state.get_state_dict(), "dynamics": self.dynamics.state_dict(), "interaction": self.interaction.state_dict(), "aggregation": self.aggregation.state_dict(), "abstraction": self.abstraction.state_dict(), "consolidation": self.consolidation.state_dict(), "production": self.production.state_dict(), "atoms": self.atoms.state_dict(), "energy_history": self.energy_history, "training_loss": self.training_loss, "consolidation_count": self.consolidation_count, "abstraction_count": self.abstraction_count, "config": {"vocab_size": self.encoder.vocab_size, "d_model": self.encoder.d_model, "n_modes": self.state.n_modes, "n_atoms_max": self.encoder.n_atoms_max}}, path)
+    def save(self, path, extra_state=None):
+        checkpoint = {"encoder": self.encoder.state_dict(), "state": self.state.get_state_dict(), "dynamics": self.dynamics.state_dict(), "interaction": self.interaction.state_dict(), "aggregation": self.aggregation.state_dict(), "abstraction": self.abstraction.state_dict(), "consolidation": self.consolidation.state_dict(), "production": self.production.state_dict(), "atoms": self.atoms.state_dict(), "energy_history": self.energy_history, "training_loss": self.training_loss, "consolidation_count": self.consolidation_count, "abstraction_count": self.abstraction_count, "config": {"vocab_size": self.encoder.vocab_size, "d_model": self.encoder.d_model, "n_modes": self.state.n_modes, "n_atoms_max": self.encoder.n_atoms_max}}
+        if extra_state is not None:
+            checkpoint["training"] = extra_state
+        torch.save(checkpoint, path)
 
     def load(self, path):
-        checkpoint = torch.load(path, map_location="cpu")
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         for name in ("encoder", "dynamics", "interaction", "aggregation", "abstraction", "consolidation", "production"): getattr(self, name).load_state_dict(checkpoint[name])
         self.state.load_state_dict(checkpoint["state"]); self.atoms.load_state_dict(checkpoint["atoms"])
         self.energy_history = checkpoint.get("energy_history", []); self.training_loss = checkpoint.get("training_loss", 0.0); self.consolidation_count = checkpoint.get("consolidation_count", 0); self.abstraction_count = checkpoint.get("abstraction_count", 0)
+        return checkpoint.get("training")
 
     def get_shared_params_summary(self):
         return {"coupling_scale": self.dynamics.dynamics.coupling_scale.item(), "energy_decay": self.dynamics.dynamics.energy_decay.item(), "phase_sync": self.dynamics.dynamics.phase_sync.item(), "n_atoms": len(self.atoms), "n_modes": self.state.n_modes, "d_model": self.encoder.d_model}
