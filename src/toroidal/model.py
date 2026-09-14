@@ -17,7 +17,7 @@ class ToroidalFractalIntelligence(nn.Module):
         super().__init__()
         self.encoder = ToroidalEncoder(vocab_size, d_model, n_atoms_max=n_atoms_max)
         self.state = FractalSuperpositionState(n_modes, d_model)
-        self.dynamics = RK4DynamicsEngine(ToroidalDynamics(d_model, n_modes), dt=0.1, n_steps=4)
+        self.dynamics = RK4DynamicsEngine(ToroidalDynamics(d_model, n_modes), dt=0.01, n_steps=4)
         self.interaction = ToroidalInteraction(d_model, n_modes)
         self.aggregation = AggregationEngine(d_model)
         self.abstraction = AbstractionEngine(d_model)

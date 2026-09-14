@@ -172,7 +172,7 @@ toroidal_fractal_intelligence/
 | `d_model` | 256 | Hidden dimension |
 | `n_modes` | 256 | Number of spectral modes |
 | `n_atoms_max` | 1024 | Maximum concurrent atoms |
-| `dt` | 0.1 | RK4 time step |
+| `dt` | 0.01 | RK4 time step |
 | `n_steps` | 4 | RK4 integration steps |
 | `phase_coherence_threshold` | 0.7 | Aggregation threshold |
 | `energy_threshold` | 0.3 | Minimum energy for consolidation |
