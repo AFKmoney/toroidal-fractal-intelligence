@@ -22,6 +22,8 @@ TOKEN + CONTEXT + STATE → TOROIDAL STRUCTURE
 
 The token is not simply transformed into activation and propagated through successive layers. It is converted into **computational matter**.
 
+The atom-native refonte is documented in [`ATOM_NATIVE_TOKENIZATION.md`](ATOM_NATIVE_TOKENIZATION.md), and its CPU experiment is reported in [`ATOM_NATIVE_RUN.md`](ATOM_NATIVE_RUN.md). This path treats the input as a reversible stream observation and compiles it directly into contextual toroidal atoms rather than relying on the GPT-2 vocabulary.
+
 This matter can then:
 - Interact
 - Superpose
@@ -33,6 +35,9 @@ This matter can then:
 - Contribute to output production
 
 ## Architecture
+
+The non-negotiable ATOM invariants and prohibited patterns are documented in [`ATOM_RULES.md`](ATOM_RULES.md).
+
 
 ```
                 TOKEN STREAM
@@ -74,7 +79,7 @@ This matter can then:
 ## Key Features
 
 - **Infinite Learning**: No boundary between training and inference
-- **Continuous Thought**: Internal reasoning before generation
+- **Continuous State**: The toroidal field and structural memory persist across ticks
 - **Structural Emergence**: Atoms → Aggregates → Abstractions
 - **Selective Consolidation**: Only stable structures are persistent
 - **Parameter Efficiency**: Shared rules control many structures
@@ -103,10 +108,8 @@ python -m src.main --mode interactive
 ## Testing
 
 ```bash
-# Run tests
-python test_shakespeare.py
-python SIMPLE_PROOF.py
-python final_benchmark.py
+# Run the canonical invariant tests
+python -m pytest test/core_invariants.py
 ```
 
 ## Project Structure
@@ -125,9 +128,8 @@ toroidal_fractal_intelligence/
 │   │   ├── consolidation.py # Persistent memory
 │   │   ├── production.py   # Output generation
 │   │   └── model.py        # Complete model
-│   ├── agents/             # ThinkerAgent
 │   ├── io/                 # Data loading
-│   ├── evaluation/         # Metrics & benchmarks
+│   ├── evaluation/         # Metrics
 │   ├── training/           # Training loop
 │   └── main.py             # CLI entry point
 ├── checkpoints/            # Model checkpoints (.pt)

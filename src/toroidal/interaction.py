@@ -39,19 +39,5 @@ class ToroidalInteraction(nn.Module):
         radial = torch.exp(-0.5 * (atoms_r[:, None, :] - atoms_r[None, :, :]).pow(2).mean(dim=-1))
         return (phase * coupling).mean(dim=-1) * radial
 
-    def sparse_attention_interactions(self, alpha: torch.Tensor, k: int = 16) -> torch.Tensor:
-        """Compatibility API: local toroidal neighbour interaction, no attention module."""
-        n = alpha.shape[0]
-        if n == 0:
-            return alpha
-        k = max(1, min(k, n - 1)) if n > 1 else 0
-        if k == 0:
-            return alpha.new_zeros(alpha.shape)
-        dist = torch.cdist(alpha, alpha)
-        indices = dist.topk(k + 1, largest=False, dim=-1).indices[:, 1:]
-        neighbours = alpha[indices]
-        phase_affinity = torch.cosine_similarity(alpha[:, None, :], neighbours, dim=-1).unsqueeze(-1)
-        return (neighbours * phase_affinity).mean(dim=1)
-
     def get_interaction_matrix(self, atoms_phi: torch.Tensor, atoms_kappa: torch.Tensor) -> torch.Tensor:
         return self.pairwise_interaction(torch.zeros_like(atoms_phi), atoms_phi, atoms_kappa)

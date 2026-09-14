@@ -52,19 +52,43 @@ class InfiniteDataLoader:
         self.drop_last = drop_last
         self.epoch = 0
         self.step = 0
+        self._indices: torch.Tensor | None = None
+        self._cursor = 0
+
+    def _prepare_epoch(self) -> None:
+        self._indices = torch.randperm(len(self.data)) if self.shuffle else torch.arange(len(self.data))
+        self._cursor = 0
 
     def __iter__(self) -> Iterator[torch.Tensor]:
-        """Yield infinite batches."""
+        """Yield infinite batches while keeping a restorable cursor."""
         while True:
-            indices = torch.randperm(len(self.data)) if self.shuffle else torch.arange(len(self.data))
+            if self._indices is None or self._cursor + self.batch_size > len(self._indices):
+                if self._indices is not None:
+                    self.epoch += 1
+                self._prepare_epoch()
 
-            for i in range(0, len(indices) - self.batch_size + 1, self.batch_size):
-                batch_indices = indices[i:i + self.batch_size]
-                batch = torch.stack([self.data[idx] for idx in batch_indices])
-                self.step += 1
-                yield batch
+            batch_indices = self._indices[self._cursor:self._cursor + self.batch_size]
+            self._cursor += self.batch_size
+            batch = torch.stack([self.data[idx] for idx in batch_indices])
+            self.step += 1
+            yield batch
 
-            self.epoch += 1
+    def state_dict(self) -> dict:
+        """Return the exact data-order and cursor state for checkpoint resume."""
+        return {
+            "epoch": self.epoch,
+            "step": self.step,
+            "cursor": self._cursor,
+            "indices": self._indices.clone() if self._indices is not None else None,
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """Restore data order and cursor before creating the next iterator."""
+        self.epoch = int(state.get("epoch", 0))
+        self.step = int(state.get("step", 0))
+        self._cursor = int(state.get("cursor", 0))
+        indices = state.get("indices")
+        self._indices = indices.clone().long() if indices is not None else None
 
     def __len__(self) -> int:
         """Number of full batches per epoch."""

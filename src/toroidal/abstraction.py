@@ -17,8 +17,8 @@ class AbstractionEngine(nn.Module):
     def compute_pattern(self, aggregates: list[dict]) -> torch.Tensor | None:
         if not aggregates:
             return None
-        # Structural signature: retain all primitive information without a learned
-        # Transformer-like projection. Normalize each property before fusion.
+        # Structural signature: retain primitive atom information without a
+        # learned feature projection. Normalize each property before fusion.
         parts = []
         for key in ("r", "phi", "omega", "E", "kappa", "M", "tau"):
             x = torch.stack([a[key] for a in aggregates]).mean(dim=0)

@@ -1,5 +1,8 @@
 # Toroidal Fractal Intelligence — Complete System
 
+> Read [`ATOM_RULES.md`](ATOM_RULES.md) first. The active system is a stateful
+> atom/field/RK4 pipeline, not a Transformer and not a thought-LSTM wrapper.
+
 ## Overview
 
 A novel AI architecture based on continuous structured learning through toroidal fractal dynamics.
@@ -23,10 +26,10 @@ TOROIDAL ATOMS (8 properties: r, φ, ω, E, κ, M, τ, ρ)
 FRACTAL SUPERPOSITION (Spectral field: O(n_modes))
      │
      ▼
-RK4 DYNAMICS (Learned neural ODE)
+RK4 DYNAMICS (Explicit toroidal rules)
      │
      ▼
-INTERACTIONS (Sparse k-NN, k=16)
+INTERACTIONS (Local toroidal field coupling)
      │
      ▼
 AGGREGATION (Hierarchical, depth=5)
@@ -57,10 +60,10 @@ PERSISTENT  CURRENT
 - Model learns continuously
 - Structures persist across sessions
 
-### 2. Continuous Thought
-- ThinkerAgent generates internal thoughts
-- Thoughts are integrated into state
-- Generation includes reasoning phase
+### 2. Continuous State
+- Each token advances the toroidal field
+- Atoms and persistent memory survive between ticks
+- Generation uses the same stateful production path
 
 ### 3. Structure Emergence
 - Atoms → Aggregates → Abstractions
@@ -106,30 +109,17 @@ python -m src.main --mode chat --checkpoint checkpoints/final_model.pt --prompt 
 python -m src.main --mode interactive
 ```
 
-### Infinite Training with Chat
-```bash
-python infinite_training_chat.py
-```
-
 ---
 
 ## Testing
 
-### Basic Tests
 ```bash
-python test_model.py           # Unit tests
-python test_shakespeare.py     # Shakespeare test
-python SIMPLE_PROOF.py         # Infinite learning proof
-python test_generalization.py  # Generalization tests
+python -m pytest test/core_invariants.py
 ```
 
-### Scaling Experiments
-```bash
-python run_scaling_experiment.py --scale small    # 7M params
-python run_scaling_experiment.py --scale medium   # 28M params
-python run_scaling_experiment.py --scale large    # 112M params
-python run_scaling_experiment.py --scale all      # All scales
-```
+The historical benchmark, scaling and debug scripts were removed because they
+flattened sequences or introduced Transformer baselines. New experiments must
+use the sequential trainer described in [`ATOM_RULES.md`](ATOM_RULES.md).
 
 ---
 
@@ -166,14 +156,11 @@ toroidal_fractal_intelligence/
 │   │   ├── consolidation.py # Persistent memory
 │   │   ├── production.py    # Output generation
 │   │   └── model.py         # Complete model
-│   ├── agents/
-│   │   └── thinker.py       # Continuous thought
 │   ├── io/
 │   │   ├── tokenizer.py     # Text tokenization
 │   │   └── data.py          # Data loading
 │   ├── evaluation/
-│   │   ├── metrics.py       # Performance metrics
-│   │   └── benchmark.py     # Model comparison
+│   │   └── metrics.py       # Performance metrics
 │   ├── training/
 │   │   └── trainer.py       # Training loop
 │   └── main.py              # CLI entry point
@@ -185,17 +172,10 @@ toroidal_fractal_intelligence/
 ├── ARCHITECTURAL_DECISIONS.md # Design decisions
 ├── RESULTS.md               # Results template
 ├── SHAKESPEARE_RESULTS.md   # Shakespeare test
-├── PROOF_OF_INFINITE_TRAINING.md # Proof document
 ├── SCALING_EXPERIMENTS.md   # Scaling plan
 ├── WORK_LOG_SCALING.md      # Scaling log
 ├── COMPLETE_SYSTEM_README.md # This file
-├── test_model.py            # Unit tests
-├── test_shakespeare.py      # Shakespeare test
-├── SIMPLE_PROOF.py          # Simple proof
-├── test_infinite_training.py # Infinite learning test
-├── test_generalization.py   # Generalization tests
-├── infinite_training_chat.py # Interactive demo
-└── run_scaling_experiment.py # Scaling runner
+└── ATOM_RULES.md            # Non-negotiable architecture rules
 ```
 
 ---

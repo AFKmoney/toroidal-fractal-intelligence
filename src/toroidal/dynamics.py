@@ -102,7 +102,7 @@ class ToroidalDynamics(nn.Module):
 class RK4DynamicsEngine(nn.Module):
     """RK4 numerical integration of the toroidal dynamics."""
 
-    def __init__(self, dynamics: ToroidalDynamics, dt: float = 0.1, n_steps: int = 4) -> None:
+    def __init__(self, dynamics: ToroidalDynamics, dt: float = 0.01, n_steps: int = 4) -> None:
         super().__init__()
         self.dynamics = dynamics
         self.dt = dt

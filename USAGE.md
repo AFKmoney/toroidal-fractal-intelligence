@@ -1,5 +1,8 @@
 # Toroidal Fractal Intelligence — Usage Guide
 
+> ATOM is stateful and tick-based. Read [`ATOM_RULES.md`](ATOM_RULES.md) before
+> writing a training or evaluation loop.
+
 ## Installation
 
 ```bash
@@ -67,6 +70,9 @@ result = train(
     learning_rate=3e-4,
     save_dir="./checkpoints"
 )
+
+# The trainer executes token[t] -> logits[t] -> target token[t+1]
+# sequentially; never flatten a complete sequence before model(...).
 ```
 
 ### Generate Text

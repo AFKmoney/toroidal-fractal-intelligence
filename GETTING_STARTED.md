@@ -1,5 +1,8 @@
 # Toroidal Fractal Intelligence — Getting Started
 
+> Read [`ATOM_RULES.md`](ATOM_RULES.md) first. The removed historical scripts
+> flattened sequences or introduced unrelated baseline architectures.
+
 ## What is ATOM?
 
 ATOM (Toroidal Fractal Intelligence) is a novel AI architecture that creates intelligence through **dynamic structures** rather than static weights.
@@ -29,16 +32,13 @@ cd toroidal_fractal_intelligence
 pip install -e .
 ```
 
-### 2. Run a Test
+### 2. Run the canonical test
 
 ```bash
-python test_shakespeare.py
+python -m pytest test/core_invariants.py
 ```
 
-You should see:
-- Model training on tiny Shakespeare
-- Atoms being created
-- Text generation
+This checks the toroidal projection, RK4 dynamics and finite field behavior.
 
 ### 3. Try Chat Mode
 
@@ -116,27 +116,15 @@ while True:
 
 ---
 
-## Running Experiments
-
-### Scaling Study
+## Running the canonical training path
 
 ```bash
-python run_scaling_experiment.py --config small
-python run_scaling_experiment.py --config medium
-python run_scaling_experiment.py --config large
+python -m src.main --mode train --dataset wikitext --batch-size 2 --max-steps 2
 ```
 
-### Benchmark
-
-```bash
-python final_benchmark.py
-```
-
-### Structural Efficiency
-
-```bash
-python study_structural_efficiency.py --mode series
-```
+The trainer sends one token per tick and keeps the toroidal state between ticks.
+Do not add a flattened benchmark or Transformer baseline; see
+[`ATOM_RULES.md`](ATOM_RULES.md).
 
 ---
 

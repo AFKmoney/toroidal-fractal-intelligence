@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import random
 import time
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -158,15 +160,71 @@ class ToroidalTrainer:
         loss = sum(losses) / max(len(losses), 1)
         return {"loss": loss, "perplexity": float(torch.exp(torch.tensor(loss))), "n_atoms": len(self.model.atoms)}
 
+    @staticmethod
+    def _get_rng_state() -> dict:
+        """Capture every RNG used by the training and input pipelines."""
+        return {
+            "python": random.getstate(),
+            "numpy": np.random.get_state(),
+            "torch": torch.get_rng_state(),
+            "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        }
+
+    @staticmethod
+    def _set_rng_state(state: dict) -> None:
+        """Restore RNG state without advancing any generator."""
+        random.setstate(state["python"])
+        np.random.set_state(state["numpy"])
+        torch.set_rng_state(state["torch"])
+        if state.get("cuda") is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(state["cuda"])
+
+    def _training_state(self) -> dict:
+        """Return state needed to continue the next optimizer step exactly."""
+        state = {
+            "optimizer": self.optimizer.state_dict(),
+            "trainer": {
+                "step": self.step,
+                "epoch": self.epoch,
+                "best_loss": self.best_loss,
+                "training_log": self.training_log,
+                "model_training": self.model.training,
+            },
+            "rng": self._get_rng_state(),
+        }
+        if hasattr(self.dataloader, "state_dict"):
+            state["dataloader"] = self.dataloader.state_dict()
+        return state
+
     def save(self, filename: Optional[str] = None) -> str:
         filename = filename or f"checkpoint_step_{self.step}.pt"
         path = self.save_dir / filename
-        self.model.save(str(path))
+        self.model.save(str(path), extra_state=self._training_state())
         with open(self.save_dir / f"training_log_step_{self.step}.json", "w") as f:
             json.dump(self.training_log[-100:], f, indent=2)
         print(f"Saved checkpoint to {path}")
         return str(path)
 
     def load(self, path: str) -> None:
-        self.model.load(path)
+        training = self.model.load(path)
+        if training is not None:
+            optimizer_state = training.get("optimizer")
+            if optimizer_state is not None:
+                self.optimizer.load_state_dict(optimizer_state)
+
+            trainer_state = training.get("trainer", {})
+            self.step = int(trainer_state.get("step", self.step))
+            self.epoch = int(trainer_state.get("epoch", self.epoch))
+            self.best_loss = float(trainer_state.get("best_loss", self.best_loss))
+            self.training_log = trainer_state.get("training_log", self.training_log)
+            if "model_training" in trainer_state:
+                self.model.train(bool(trainer_state["model_training"]))
+
+            dataloader_state = training.get("dataloader")
+            if dataloader_state is not None and hasattr(self.dataloader, "load_state_dict"):
+                self.dataloader.load_state_dict(dataloader_state)
+
+            rng_state = training.get("rng")
+            if rng_state is not None:
+                self._set_rng_state(rng_state)
         print(f"Loaded checkpoint from {path}")

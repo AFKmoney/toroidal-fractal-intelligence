@@ -17,7 +17,7 @@ class ToroidalFractalIntelligence(nn.Module):
         super().__init__()
         self.encoder = ToroidalEncoder(vocab_size, d_model, n_atoms_max=n_atoms_max)
         self.state = FractalSuperpositionState(n_modes, d_model)
-        self.dynamics = RK4DynamicsEngine(ToroidalDynamics(d_model, n_modes), dt=0.1, n_steps=4)
+        self.dynamics = RK4DynamicsEngine(ToroidalDynamics(d_model, n_modes), dt=0.01, n_steps=4)
         self.interaction = ToroidalInteraction(d_model, n_modes)
         self.aggregation = AggregationEngine(d_model)
         self.abstraction = AbstractionEngine(d_model)
@@ -35,7 +35,9 @@ class ToroidalFractalIntelligence(nn.Module):
         new_atom, operation, confidence = self.encoder(token_ids, context_ids, self.atoms)
         self.state.add_atom_contribution(new_atom.r, new_atom.phi, new_atom.omega, new_atom.E, new_atom.kappa)
         self.atoms.add(new_atom)
-        alpha = self.state.get_field()
+        # The committed state is recurrent memory; use a snapshot so committing
+        # the next state cannot invalidate the autograd graph for this tick.
+        alpha = self.state.get_field().detach().clone()
         alpha_new = self.dynamics.evolve(alpha, input_token=new_atom.r)
         interaction_energy = self.interaction.field_interaction(alpha_new)
         # Explicit toroidal interaction feeds the resulting state.
@@ -64,14 +66,14 @@ class ToroidalFractalIntelligence(nn.Module):
         with torch.no_grad():
             self.state.alpha.copy_(alpha_new.detach())
             self.state.t.add_(self.dynamics.dt)
-        return {"logits": logits, "confidence": conf, "interaction_energy": interaction_energy, "aggregates": aggregates, "abstractions": abstractions, "persistent_state": persistent_state, "operation": operation}
+        return {"logits": logits, "field": alpha_new, "confidence": conf, "interaction_energy": interaction_energy, "aggregates": aggregates, "abstractions": abstractions, "persistent_state": persistent_state, "operation": operation}
 
     def train_step(self, token_ids, target_ids, optimizer, context_ids=None):
         optimizer.zero_grad(set_to_none=True)
         output = self.forward(token_ids, context_ids)
         if target_ids.dim() > 1: target_ids = target_ids[:, -1]
         loss = nn.CrossEntropyLoss()(output["logits"], target_ids)
-        alpha = output["logits"].new_tensor(0.0) + self.state.get_field()
+        alpha = output["field"]
         total_loss = loss + 0.01 * alpha.abs().mean()
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
@@ -88,14 +90,18 @@ class ToroidalFractalIntelligence(nn.Module):
             if token_id == 2: break
         return generated
 
-    def save(self, path):
-        torch.save({"encoder": self.encoder.state_dict(), "state": self.state.get_state_dict(), "dynamics": self.dynamics.state_dict(), "interaction": self.interaction.state_dict(), "aggregation": self.aggregation.state_dict(), "abstraction": self.abstraction.state_dict(), "consolidation": self.consolidation.state_dict(), "production": self.production.state_dict(), "atoms": self.atoms.state_dict(), "energy_history": self.energy_history, "training_loss": self.training_loss, "consolidation_count": self.consolidation_count, "abstraction_count": self.abstraction_count, "config": {"vocab_size": self.encoder.vocab_size, "d_model": self.encoder.d_model, "n_modes": self.state.n_modes, "n_atoms_max": self.encoder.n_atoms_max}}, path)
+    def save(self, path, extra_state=None):
+        checkpoint = {"encoder": self.encoder.state_dict(), "state": self.state.get_state_dict(), "dynamics": self.dynamics.state_dict(), "interaction": self.interaction.state_dict(), "aggregation": self.aggregation.state_dict(), "abstraction": self.abstraction.state_dict(), "consolidation": self.consolidation.state_dict(), "production": self.production.state_dict(), "atoms": self.atoms.state_dict(), "energy_history": self.energy_history, "training_loss": self.training_loss, "consolidation_count": self.consolidation_count, "abstraction_count": self.abstraction_count, "config": {"vocab_size": self.encoder.vocab_size, "d_model": self.encoder.d_model, "n_modes": self.state.n_modes, "n_atoms_max": self.encoder.n_atoms_max}}
+        if extra_state is not None:
+            checkpoint["training"] = extra_state
+        torch.save(checkpoint, path)
 
     def load(self, path):
-        checkpoint = torch.load(path, map_location="cpu")
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         for name in ("encoder", "dynamics", "interaction", "aggregation", "abstraction", "consolidation", "production"): getattr(self, name).load_state_dict(checkpoint[name])
         self.state.load_state_dict(checkpoint["state"]); self.atoms.load_state_dict(checkpoint["atoms"])
         self.energy_history = checkpoint.get("energy_history", []); self.training_loss = checkpoint.get("training_loss", 0.0); self.consolidation_count = checkpoint.get("consolidation_count", 0); self.abstraction_count = checkpoint.get("abstraction_count", 0)
+        return checkpoint.get("training")
 
     def get_shared_params_summary(self):
         return {"coupling_scale": self.dynamics.dynamics.coupling_scale.item(), "energy_decay": self.dynamics.dynamics.energy_decay.item(), "phase_sync": self.dynamics.dynamics.phase_sync.item(), "n_atoms": len(self.atoms), "n_modes": self.state.n_modes, "d_model": self.encoder.d_model}
