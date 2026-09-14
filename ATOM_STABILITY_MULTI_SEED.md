@@ -16,6 +16,12 @@ tools/run_atom_native.py
 Les seules différences entre les runs sont les seeds et les répertoires de
 sortie.
 
+Une première tentative d'instrumentation avec `/usr/bin/time` s'est arrêtée
+avant le lancement Python parce que ce binaire n'existe pas dans
+l'environnement. Aucun entraînement n'avait commencé à ce moment-là. Les cinq
+runs ont ensuite été lancés avec le builtin `time` de Bash afin d'enregistrer
+les temps `real`, `user` et `sys`, sans modifier le code ni les données.
+
 ## Configuration strictement identique
 
 ```text
