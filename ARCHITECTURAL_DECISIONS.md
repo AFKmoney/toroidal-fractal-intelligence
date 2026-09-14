@@ -44,16 +44,16 @@
 
 ---
 
-## ADR-003: Sparse k-NN Interaction
+## ADR-003: Local Toroidal Interaction
 
-**Decision**: Use k-NN attention (k=16) for pairwise interactions instead of full O(N^2) matrix.
+**Decision**: Use local toroidal neighbour interactions over the spectral field instead of Transformer attention. This is periodic roll/phase coupling without Q/K/V projections or attention softmax.
 
 **Context**: Full pairwise interaction requires O(N^2) computations. For N=1024, this is ~1M operations per step. For N=1M, this is ~1T operations—impossible.
 
 **Alternatives Considered**:
-1. Full pairwise matrix (O(N^2))
-2. Sparse k-NN (O(N * k))
-3. Field-only interactions (O(n_modes))
+1. Full pairwise atom matrix (O(N^2))
+2. Sparse atom-neighbour graph
+3. Local field interactions (O(n_modes))
 
 **Consequences**:
 - ✅ Scales to large N
@@ -144,7 +144,7 @@
 **Consequences**:
 - ✅ Autograd for backprop
 - ✅ GPU acceleration
-- ✅ Ecosystem (transformers, datasets)
+- ✅ Ecosystem for tokenization and datasets (the `transformers` package is tokenizer-only here)
 - ✅ Research standard
 - ❌ Python dependency
 
@@ -223,7 +223,7 @@
 |-----|----------|--------|
 | 001 | Spectral field representation | Accepted |
 | 002 | Shared parameters Θ | Accepted |
-| 003 | Sparse k-NN interaction | Accepted |
+| 003 | Local toroidal field interaction | Accepted |
 | 004 | Max aggregation depth 5 | Accepted |
 | 005 | Threshold-based consolidation | Accepted |
 | 006 | No training/inference boundary | Accepted |

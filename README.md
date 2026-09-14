@@ -34,6 +34,9 @@ This matter can then:
 
 ## Architecture
 
+The non-negotiable ATOM invariants and prohibited patterns are documented in [`ATOM_RULES.md`](ATOM_RULES.md).
+
+
 ```
                 TOKEN STREAM
                      │
@@ -74,7 +77,7 @@ This matter can then:
 ## Key Features
 
 - **Infinite Learning**: No boundary between training and inference
-- **Continuous Thought**: Internal reasoning before generation
+- **Continuous State**: The toroidal field and structural memory persist across ticks
 - **Structural Emergence**: Atoms → Aggregates → Abstractions
 - **Selective Consolidation**: Only stable structures are persistent
 - **Parameter Efficiency**: Shared rules control many structures
@@ -103,10 +106,8 @@ python -m src.main --mode interactive
 ## Testing
 
 ```bash
-# Run tests
-python test_shakespeare.py
-python SIMPLE_PROOF.py
-python final_benchmark.py
+# Run the canonical invariant tests
+python -m pytest test/core_invariants.py
 ```
 
 ## Project Structure
@@ -125,9 +126,8 @@ toroidal_fractal_intelligence/
 │   │   ├── consolidation.py # Persistent memory
 │   │   ├── production.py   # Output generation
 │   │   └── model.py        # Complete model
-│   ├── agents/             # ThinkerAgent
 │   ├── io/                 # Data loading
-│   ├── evaluation/         # Metrics & benchmarks
+│   ├── evaluation/         # Metrics
 │   ├── training/           # Training loop
 │   └── main.py             # CLI entry point
 ├── checkpoints/            # Model checkpoints (.pt)

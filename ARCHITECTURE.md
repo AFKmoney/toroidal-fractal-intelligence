@@ -12,6 +12,8 @@ This document describes the complete architecture of the Toroidal Fractal Intell
 
 The key insight: intelligence emerges from the *dynamics and organization of structures*, not just from static weights.
 
+The non-negotiable implementation rules are in [`ATOM_RULES.md`](ATOM_RULES.md). In particular, ATOM is stateful and tick-based; it is not a Transformer and its token stream must never be flattened into one model call.
+
 ## Mathematical Foundation
 
 ### Toroidal Atom
@@ -46,7 +48,7 @@ Where:
 - `S` = current state of computational matter
 - `A` = toroidal atom or structural modification
 
-The encoder can produce operations: `CREATE`, `MODIFY`, `MERGE`, `REINFORCE`, `SPLIT`, `ABSTRACT`, `CONSOLIDATE`
+The encoder returns an operation label, but the current forward path creates one new atom per tick. `MODIFY`, `MERGE`, `REINFORCE`, `SPLIT`, `ABSTRACT`, and `CONSOLIDATE` are not active structural mutations and must not be documented as implemented mechanisms.
 
 ### Fractal Superposition
 
@@ -54,7 +56,7 @@ The encoder can produce operations: `CREATE`, `MODIFY`, `MERGE`, `REINFORCE`, `S
 S = Σ_i α_i A_i
 ```
 
-The superposition allows representing `N` structures with computational cost that doesn't grow linearly with `N`, using spectral/toroidal field representation.
+The spectral field is the compact operational state with `O(n_modes)` size. The model also keeps an explicit atom collection as structural memory, so total memory is not purely `O(n_modes)` in the current implementation.
 
 ### RK4 Dynamics
 
@@ -89,8 +91,6 @@ toroidal_fractal_intelligence/
 │   │   ├── consolidation.py # Persistent memory
 │   │   ├── production.py    # Output generation
 │   │   └── model.py         # Complete model integration
-│   ├── agents/
-│   │   └── thinker.py       # Internal reasoning agent
 │   ├── io/
 │   │   ├── tokenizer.py     # Text tokenization
 │   │   └── data.py          # Data loading utilities
@@ -108,7 +108,7 @@ toroidal_fractal_intelligence/
 
 ### 1. Spectral Field Representation (state.py)
 
-**Decision**: Use a fixed number of spectral modes (256) instead of storing N atoms explicitly.
+**Decision**: Use a fixed number of spectral modes (256) for the operational field while retaining explicit atoms as structural memory.
 
 **Rationale**: 
 - O(modes) storage vs O(N * d_model) for explicit atoms
@@ -127,11 +127,11 @@ toroidal_fractal_intelligence/
 - Enables billions of potential states with modest parameter count
 - Follows the principle: `capacity >> independent parameters`
 
-**Implementation**: `coupling_scale`, `energy_decay`, `phase_sync`, `attractor_centers`
+**Implementation**: `coupling_scale`, `energy_decay`, and `phase_sync` in the toroidal dynamics. These are shared rules, not per-token or per-atom attention parameters.
 
 ### 3. Sparse Interaction (interaction.py)
 
-**Decision**: Use k-NN attention for pairwise interactions instead of full O(N^2) matrix.
+**Decision**: Use local toroidal neighbour interactions over the spectral field. The interaction uses periodic rolls, distance/phase coupling and field gradients; it has no Q/K/V projections or attention softmax.
 
 **Rationale**:
 - Computational efficiency for large N
@@ -158,7 +158,7 @@ toroidal_fractal_intelligence/
 
 ### 6. Continuous Training Loop (trainer.py)
 
-**Decision**: No training/inference boundary; infinite data stream.
+**Decision**: No training/inference boundary; infinite data stream. The canonical trainer processes one token transition per tick and preserves the model state between ticks.
 
 **Rationale**:
 - True continuous learning

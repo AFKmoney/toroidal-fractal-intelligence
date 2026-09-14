@@ -1,3 +1,9 @@
+> **ARCHIVE — NOT THE CANONICAL ATOM PATH**
+>
+> This historical record refers to routines that have been removed. Do not
+> execute its commands or use its flattened/Transformer-style benchmarks as
+> ATOM evidence. The current rules are in [`ATOM_RULES.md`](ATOM_RULES.md).
+
 # Scaling Study Results — Toroidal Fractal Intelligence
 
 ## Experimental Setup

@@ -1,5 +1,7 @@
 # ATOM AI — Complete System Documentation
 
+> **Canonical rule:** read [`ATOM_RULES.md`](ATOM_RULES.md) before changing the project. Historical benchmark scripts and auxiliary thought blocks are not part of the active ATOM pipeline.
+
 ## Overview
 
 This is the complete documentation for the Toroidal Fractal Intelligence (ATOM) system.
@@ -41,7 +43,7 @@ This is the complete documentation for the Toroidal Fractal Intelligence (ATOM) 
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              INTERACTION ENGINE                              │
-│  Mechanism: Sparse k-NN (k=16)                               │
+│  Mechanism: Local toroidal field coupling                    │
 │  Cost: O(N × k) instead of O(N²)                            │
 │  Operation: Phase coupling, energy transfer                  │
 └─────────────────────────────┬───────────────────────────────┘
@@ -138,12 +140,13 @@ Integrates the fractal superposition forward in time:
 dS/dt = F(S, x, C; Θ)
 ```
 
-Where F includes:
-- Base dynamics (MLP)
+Where F includes the explicit shared toroidal rules:
 - Phase coupling
-- Attractor dynamics
-- Input driving
+- Periodic mode rotation
+- Input/context driving
 - Energy decay
+
+It is not an MLP dynamics block and it is not Transformer attention.
 
 RK4 integration:
 ```
@@ -158,9 +161,9 @@ S_{t+dt} = S_t + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
 
 ### 4. ToroidalInteraction (`src/toroidal/interaction.py`)
 
-Computes pairwise interactions using sparse k-NN:
+Computes local toroidal field interactions using periodic neighbours:
 ```
-I(A_i, A_j) = f(Δφ, Δω, d, E_i, E_j, κ_i, κ_j)
+I(S_m, S_{m±1}) = f(Δφ, Δω, d, E, κ)
 ```
 
 Key operation: Phase coupling
@@ -213,15 +216,11 @@ Criteria:
 
 ---
 
-### 8. ThinkerAgent (`src/agents/thinker.py`)
+### 8. Active boundary
 
-Generates internal thoughts during processing:
-```
-thoughts = thinker.think(context, n_steps=5)
-enhanced_state = thinker.integrate_thoughts(thoughts, state)
-```
-
-Architecture: LSTM-based thought dynamics.
+The active ATOM pipeline ends at production. No external `ThinkerAgent`, LSTM,
+GRU, or other thought block is part of the current model. Adding one to bypass
+the toroidal field would violate [`ATOM_RULES.md`](ATOM_RULES.md).
 
 ---
 
@@ -241,8 +240,6 @@ toroidal_fractal_intelligence/
 │   │   ├── consolidation.py (150 lines) — Persistent memory
 │   │   ├── production.py    (120 lines) — Output generation
 │   │   └── model.py         (343 lines) — Complete model
-│   ├── agents/
-│   │   └── thinker.py       (180 lines) — Continuous thought
 │   ├── io/
 │   │   ├── tokenizer.py     (99 lines) — Text tokenization
 │   │   └── data.py          (316 lines) — Data loading
@@ -254,26 +251,18 @@ toroidal_fractal_intelligence/
 │   └── main.py              (180 lines) — CLI entry point
 ├── checkpoints/             — Model saves (.pt)
 ├── results/                 — Experiment results
-├── study_structural_efficiency.py (400 lines) — Scaling study
 ├── ARCHITECTURE.md          — Full architecture docs
 ├── USAGE.md                 — Usage guide
 ├── WORK_LOG.md              — Implementation log
 ├── ARCHITECTURAL_DECISIONS.md — Design decisions
 ├── RESULTS.md               — Results template
 ├── SHAKESPEARE_RESULTS.md   — Shakespeare test
-├── PROOF_OF_INFINITE_TRAINING.md — Proof document
 ├── SCALING_EXPERIMENTS.md   — Scaling plan
 ├── WORK_LOG_SCALING.md      — Scaling log
 ├── SCALING_STUDY.md         — Efficiency study
 ├── WORK_LOG_SCALING_STUDY.md — Study log
 ├── COMPLETE_SYSTEM_README.md — System overview
-├── test_model.py            — Unit tests
-├── test_shakespeare.py      — Shakespeare test
-├── SIMPLE_PROOF.py          — Simple proof
-├── test_infinite_training.py — Infinite learning test
-├── test_generalization.py   — Generalization tests
-├── infinite_training_chat.py — Interactive demo
-└── run_scaling_experiment.py — Scaling runner
+└── ATOM_RULES.md            — Non-negotiable architecture rules
 ```
 
 **Total**: ~3,500 lines of Python code
@@ -299,9 +288,9 @@ python -m src.main --mode train --max-steps 1000
 python -m src.main --mode chat --checkpoint checkpoints/final_model.pt
 ```
 
-### Scaling Study
+### Canonical invariant test
 ```bash
-python study_structural_efficiency.py --mode series
+python -m pytest test/core_invariants.py
 ```
 
 ---

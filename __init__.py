@@ -22,8 +22,12 @@ Usage:
     response = chat(model, "Once upon a time")
 """
 
-from .src.toroidal.model import ToroidalFractalIntelligence
-from .src.main import create_model, train, chat, interactive_chat
+if __package__:
+    from .src.toroidal.model import ToroidalFractalIntelligence
+    from .src.main import create_model, train, chat, interactive_chat
+else:
+    from src.toroidal.model import ToroidalFractalIntelligence
+    from src.main import create_model, train, chat, interactive_chat
 
 __version__ = "0.1.0"
 __all__ = [

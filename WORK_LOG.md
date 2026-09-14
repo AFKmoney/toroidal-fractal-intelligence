@@ -17,7 +17,7 @@
 - [x] `src/toroidal/encoder.py`
   - Token → Toroidal Atom conversion
   - 8 primitive properties: (r, φ, ω, E, κ, M, τ, ρ)
-  - Operation gate: CREATE/MODIFY/MERGE/REINFORCE/SPLIT/ABSTRACT/CONSOLIDATE
+  - Operation label is emitted for diagnostics; current forward creates one new atom per tick
   - Shared parameters Θ management
 
 - [x] `src/toroidal/atom.py`
@@ -28,20 +28,20 @@
 
 - [x] `src/toroidal/state.py`
   - `FractalSuperpositionState` — spectral field representation
-  - O(n_modes) storage instead of O(N * d_model)
+  - Compact O(n_modes) operational field plus explicit atom structural memory
   - Atom contribution projection
   - Time accumulator for dynamics
 
 - [x] `src/toroidal/dynamics.py`
-  - `ToroidalDynamics` — learned dynamics function F(S, x, C; Θ)
-  - Phase coupling, attractor dynamics, energy decay
+  - `ToroidalDynamics` — explicit shared dynamics function F(S, x, C; Θ)
+  - Phase coupling, periodic mode rotation, input drive, energy decay
   - `RK4DynamicsEngine` — Runge-Kutta 4th order integrator
   - Configurable dt and n_steps
 
 - [x] `src/toroidal/interaction.py`
   - Field-level interactions (O(n_modes))
   - Pairwise coupling matrix K_ij = κ_i * κ_j * cos(φ_i - φ_j)
-  - Sparse k-NN attention for large N
+  - Local toroidal neighbour interaction over the spectral field; no Transformer attention
 
 - [x] `src/toroidal/aggregation.py`
   - Phase coherence computation
@@ -76,11 +76,6 @@
   - Shared parameters summary
 
 ### ✅ Supporting Modules
-
-- [x] `src/agents/thinker.py`
-  - Internal reasoning agent
-  - Thought initialization and evolution
-  - Integration with main state
 
 - [x] `src/io/tokenizer.py`
   - HuggingFace tokenizer wrapper
@@ -122,17 +117,17 @@
 ### 1. Spectral Field Representation
 **Why**: Prevents linear growth with N atoms
 **Trade-off**: Information loss in projection, regained through hierarchy
-**Result**: O(256) storage vs O(N * 256) for explicit atoms
+**Result**: O(256) operational field plus explicit atom memory retained for structure
 
 ### 2. Shared Parameters Θ
 **Why**: Decouples capacity from training cost
-**Implementation**: 4 parameters control interactions for all atoms
+**Implementation**: three shared dynamics parameters control the field rules
 **Benefit**: Billions of potential states with minimal parameters
 
-### 3. Sparse k-NN Interaction
-**Why**: O(N^2) is infeasible for large N
-**Solution**: k=16 nearest neighbors
-**Benefit**: Local connectivity, biological plausibility
+### 3. Local Toroidal Interaction
+**Why**: the operational interaction is local on the toroidal spectral field
+**Solution**: periodic neighbour rolls and phase coupling
+**Benefit**: local connectivity without token attention
 
 ### 4. Dynamic Consolidation
 **Why**: Infinite learning requires bounded memory
@@ -169,9 +164,6 @@ toroidal_fractal_intelligence/
     │   ├── consolidation.py          ✅ 136 lines
     │   ├── production.py             ✅ 128 lines
     │   └── model.py                  ✅ 280 lines
-    ├── agents/
-    │   ├── __init__.py               ✅
-    │   └── thinker.py                ✅ 72 lines
     ├── io/
     │   ├── __init__.py               ✅
     │   ├── tokenizer.py              ✅ 72 lines

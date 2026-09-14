@@ -164,29 +164,29 @@ python -m src.main --mode interactive
 
 ### 5.2 Python API
 
+The model is stateful. Do not pass a flattened sequence to one forward call.
+Use the canonical sequential trainer:
+
 ```python
 from src.toroidal.model import ToroidalFractalIntelligence
 from src.io.data import load_wikitext
+from src.training.trainer import ToroidalTrainer
 
-# Create model
 model = ToroidalFractalIntelligence(
     vocab_size=50257,
     d_model=256,
     n_modes=256,
     n_atoms_max=1024,
 )
-
-# Load data
 loader = load_wikitext(max_tokens=100000)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+trainer = ToroidalTrainer(model, loader, optimizer)
 
-# Train
-for step in range(1000):
-    batch = next(iter(loader))
-    output = model(batch)
-    loss = compute_loss(output, batch)
-    loss.backward()
-    optimizer.step()
+# trainer._train_batch processes row[t] -> logits -> row[t+1]
+result = trainer.train(max_steps=1000)
 ```
+
+See [`ATOM_RULES.md`](ATOM_RULES.md) for the prohibited flattened/Transformer-style path.
 
 ### 5.3 Save/Load
 
