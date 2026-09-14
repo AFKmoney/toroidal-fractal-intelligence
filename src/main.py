@@ -1,105 +1,116 @@
-"""Command-line entry point for Toroidal Fractal Intelligence."""
+"""Command-line entry point for the ATOM-native Toroidal Fractal Intelligence path.
+
+The active text path is byte/atom native:
+    raw UTF-8 -> Atomizer -> AtomPacket -> AtomCompiler -> toroidal core
+
+No GPT-2 tokenizer or token-ID vocabulary is used by this entry point.
+"""
 from __future__ import annotations
 
 import argparse
-import torch
 
-from .toroidal.model import ToroidalFractalIntelligence
-from .training.trainer import ToroidalTrainer
-from .io.tokenizer import ToroidalTokenizer
-from .io.data import load_wikitext
+from .atom_native import AtomNativeModel
+from .io.atomizer import Atomizer
 
 
-def create_model(vocab_size=32000, d_model=256, n_modes=256, n_atoms_max=1024, device="cpu"):
-    return ToroidalFractalIntelligence(vocab_size, d_model, n_modes, n_atoms_max).to(device)
+def create_model(
+    d_model: int = 8,
+    n_modes: int = 8,
+    n_atoms_max: int = 128,
+    max_span_bytes: int = 32,
+    device: str = "cpu",
+) -> AtomNativeModel:
+    model = AtomNativeModel(
+        d_model=d_model,
+        n_modes=n_modes,
+        n_atoms_max=n_atoms_max,
+        max_payload_bytes=max_span_bytes,
+        atomizer=Atomizer(max_span_bytes=max_span_bytes),
+    )
+    return model.to(device)
 
 
-def train(model, dataset_name="wikitext", dataset_subset="wikitext-2-raw-v1",
-          batch_size=32, max_steps=10000, learning_rate=3e-4,
-          save_dir="./checkpoints", device="cpu"):
-    if dataset_name != "wikitext":
-        raise ValueError("The current reference trainer supports dataset='wikitext'. Use load_custom_text/load_from_file for other sources.")
-    dataloader = load_wikitext(subset=dataset_subset, seq_len=128)
-    dataloader.batch_size = batch_size
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
-    trainer = ToroidalTrainer(model, dataloader, optimizer, save_dir=save_dir)
+def chat(
+    model: AtomNativeModel,
+    prompt: str,
+    max_packets: int = 8,
+    max_length: int | None = 200,
+    temperature: float = 1.0,
+    top_k: int | None = 50,
+) -> str:
+    generated = model.generate_packets(
+        prompt,
+        max_packets=max_packets,
+        max_length=max_length,
+        temperature=temperature,
+        top_k=top_k,
+        deterministic=False,
+    )
+    return generated.decode("utf-8", errors="replace")
+
+
+def interactive_chat(model: AtomNativeModel) -> None:
     print("=" * 60)
-    print("TOROIDAL FRACTAL INTELLIGENCE — TRAINING")
-    print("=" * 60)
-    print(f"Model config: d_model={model.encoder.d_model}, n_modes={model.state.n_modes}, n_atoms_max={model.encoder.n_atoms_max}")
-    print(f"Dataset: {dataset_name}/{dataset_subset}")
-    print(f"Batch size: {batch_size}")
-    print(f"Max steps: {max_steps}")
-    print(f"Learning rate: {learning_rate}")
-    print("=" * 60)
-    result = trainer.train(max_steps=max_steps)
-    print("=" * 60)
-    print("TRAINING COMPLETE")
-    print(f"Final loss: {result['final_loss']:.4f}")
-    print(f"Best loss: {result['best_loss']:.4f}")
-    print(f"Total steps: {result['total_steps']}")
-    print(f"Total time: {result['total_time']:.1f}s")
-    print("=" * 60)
-    return result
-
-
-def chat(model, tokenizer, prompt, max_length=200, temperature=1.0, top_k=50):
-    model.eval()
-    prompt_ids = tokenizer.encode(prompt, return_tensor=True)
-    with torch.no_grad():
-        generated = model.generate(prompt_ids, max_length=max_length, temperature=temperature, top_k=top_k)
-    return tokenizer.decode(generated)
-
-
-def interactive_chat(model, tokenizer):
-    print("TOROIDAL FRACTAL INTELLIGENCE — INTERACTIVE MODE")
+    print("TOROIDAL FRACTAL INTELLIGENCE — ATOM-NATIVE MODE")
+    print("Raw UTF-8 -> Atomizer -> AtomPacket -> Toroidal core")
     print("Type 'quit' to exit, 'status' for model info, 'save' to save")
+    print("=" * 60)
+
     while True:
         try:
             user_input = input("\nYou: ").strip()
             if user_input.lower() == "quit":
                 break
             if user_input.lower() == "status":
-                s = model.get_shared_params_summary()
-                print(f"Atoms={s['n_atoms']} Modes={s['n_modes']} d_model={s['d_model']} Coupling={s['coupling_scale']:.4f} Decay={s['energy_decay']:.4f} PhaseSync={s['phase_sync']:.4f}")
-            elif user_input.lower() == "save":
-                model.save("interactive_model.pt")
-                print("Model saved to interactive_model.pt")
-            elif user_input:
-                print("\nThoughts:", chat(model, tokenizer, user_input))
+                print(f"\nAtoms: {len(model.core.atoms)}")
+                print(f"Modes: {model.core.state.n_modes}")
+                print(f"d_model: {model.core.encoder.d_model}")
+                print(f"Atomizer: {model.atomizer.VERSION}")
+                print(f"Feature dim: {model.atomizer.feature_dim}")
+                continue
+            if user_input.lower() == "save":
+                model.save("atom_native_model.pt")
+                print("Model saved to atom_native_model.pt")
+                continue
+            if user_input:
+                print("\nResponse:", chat(model, user_input))
         except KeyboardInterrupt:
+            print("\nExiting...")
             break
-        except Exception as e:
-            print(f"\nError: {e}")
+        except Exception as exc:
+            print(f"\nError: {exc}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Toroidal Fractal Intelligence")
-    parser.add_argument("--mode", choices=["train", "chat", "interactive"], default="train")
-    parser.add_argument("--dataset", default="wikitext")
-    parser.add_argument("--dataset-subset", default="wikitext-2-raw-v1")
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--max-steps", type=int, default=10000)
-    parser.add_argument("--learning-rate", type=float, default=3e-4)
-    parser.add_argument("--save-dir", default="./checkpoints")
-    parser.add_argument("--d-model", type=int, default=256)
-    parser.add_argument("--n-modes", type=int, default=256)
-    parser.add_argument("--n-atoms-max", type=int, default=1024)
-    parser.add_argument("--vocab-size", type=int, default=32000)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Toroidal Fractal Intelligence — ATOM native")
+    parser.add_argument("--mode", choices=["chat", "interactive"], default="chat")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--prompt", default="Once upon a time")
+    parser.add_argument("--max-packets", type=int, default=8)
+    parser.add_argument("--max-length", type=int, default=200)
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--top-k", type=int, default=50)
+    parser.add_argument("--d-model", type=int, default=8)
+    parser.add_argument("--n-modes", type=int, default=8)
+    parser.add_argument("--n-atoms-max", type=int, default=128)
+    parser.add_argument("--max-span-bytes", type=int, default=32)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
-    model = create_model(args.vocab_size, args.d_model, args.n_modes, args.n_atoms_max, args.device)
+
+    model = create_model(
+        d_model=args.d_model,
+        n_modes=args.n_modes,
+        n_atoms_max=args.n_atoms_max,
+        max_span_bytes=args.max_span_bytes,
+        device=args.device,
+    )
     if args.checkpoint:
         model.load(args.checkpoint)
-    tokenizer = ToroidalTokenizer("gpt2")
-    if args.mode == "train":
-        train(model, args.dataset, args.dataset_subset, args.batch_size, args.max_steps, args.learning_rate, args.save_dir, args.device)
-    elif args.mode == "chat":
-        print(f"\nResponse: {chat(model, tokenizer, args.prompt)}")
+
+    if args.mode == "chat":
+        print(chat(model, args.prompt, args.max_packets, args.max_length, args.temperature, args.top_k))
     else:
-        interactive_chat(model, tokenizer)
+        interactive_chat(model)
 
 
 if __name__ == "__main__":
