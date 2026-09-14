@@ -22,6 +22,8 @@ TOKEN + CONTEXT + STATE → TOROIDAL STRUCTURE
 
 The token is not simply transformed into activation and propagated through successive layers. It is converted into **computational matter**.
 
+The atom-native refonte is documented in [`ATOM_NATIVE_TOKENIZATION.md`](ATOM_NATIVE_TOKENIZATION.md), and its CPU experiment is reported in [`ATOM_NATIVE_RUN.md`](ATOM_NATIVE_RUN.md). This path treats the input as a reversible stream observation and compiles it directly into contextual toroidal atoms rather than relying on the GPT-2 vocabulary.
+
 This matter can then:
 - Interact
 - Superpose
