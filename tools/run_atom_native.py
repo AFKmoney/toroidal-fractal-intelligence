@@ -65,8 +65,18 @@ def main() -> None:
     parser.add_argument("--n-atoms-max", type=int, default=128)
     parser.add_argument("--max-span-bytes", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--field-max-rms", type=float, default=None)
+    parser.add_argument("--energy-decay-min", type=float, default=None)
+    parser.add_argument("--energy-decay-max", type=float, default=None)
     parser.add_argument("--seed", type=int, default=20260913)
     args = parser.parse_args()
+    if (args.energy_decay_min is None) != (args.energy_decay_max is None):
+        raise ValueError("provide both --energy-decay-min and --energy-decay-max")
+    energy_decay_bounds = (
+        (args.energy_decay_min, args.energy_decay_max)
+        if args.energy_decay_min is not None
+        else None
+    )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -91,6 +101,8 @@ def main() -> None:
         n_atoms_max=args.n_atoms_max,
         max_payload_bytes=args.max_span_bytes,
         atomizer=Atomizer(max_span_bytes=args.max_span_bytes),
+        field_max_rms=args.field_max_rms,
+        energy_decay_bounds=energy_decay_bounds,
     )
     optimizer = torch.optim.AdamW(model.trainable_parameters, lr=args.learning_rate, weight_decay=0.01)
     model.train()
@@ -118,12 +130,18 @@ def main() -> None:
             "steps": args.steps,
             "seed": args.seed,
             "surface_alphabet": 256,
+            "field_max_rms": args.field_max_rms,
+            "energy_decay_bounds": energy_decay_bounds,
         },
     }
     (output_dir / "atomization_stats.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     trajectory: list[dict] = []
     all_losses: list[float] = []
+    field_rms_before_values: list[float] = []
+    field_rms_after_values: list[float] = []
+    field_scales: list[float] = []
+    field_norm_values: list[float] = []
     start_time = time.perf_counter()
     episode = -1
     for step in range(1, args.steps + 1):
@@ -136,8 +154,13 @@ def main() -> None:
         optimizer.zero_grad(set_to_none=True)
         loss, info = transition_metrics(model, train_packets[index], train_packets[index + 1], train=True)
         optimizer.step()
+        dynamics_state = model.stabilize_dynamics_parameters()
         model.core.training_loss = loss
         all_losses.append(loss)
+        field_rms_before_values.append(info["field_rms_before"])
+        field_rms_after_values.append(info["field_rms_after"])
+        field_scales.append(info["field_scale"])
+        field_norm_values.append(info["field_norm"])
         if step == 1 or step % 25 == 0 or step == args.steps:
             record = {
                 "step": step,
@@ -148,13 +171,20 @@ def main() -> None:
                 "byte_perplexity": float(np.exp(min(info["byte_loss"], 30.0))),
                 "length_loss": info["length_loss"],
                 "field_norm": info["field_norm"],
+                "field_rms_before": info["field_rms_before"],
+                "field_rms_after": info["field_rms_after"],
+                "field_scale": info["field_scale"],
                 "grad_norm": info.get("grad_norm"),
                 "n_atoms": info["n_atoms"],
+                "energy_decay": dynamics_state["energy_decay"],
+                "coupling_scale": dynamics_state["coupling_scale"],
+                "phase_sync": dynamics_state["phase_sync"],
             }
             trajectory.append(record)
             print(
                 f"step={step:04d} loss={loss:.5f} byte_ppl={record['byte_perplexity']:.3f} "
-                f"atoms={record['n_atoms']} field={record['field_norm']:.4f}"
+                f"atoms={record['n_atoms']} field={record['field_norm']:.4f} "
+                f"rms={record['field_rms_after']:.4f} scale={record['field_scale']:.4f}"
             )
         if not finite_model(model):
             raise FloatingPointError(f"non-finite parameter at step {step}")
@@ -190,6 +220,8 @@ def main() -> None:
         n_atoms_max=args.n_atoms_max,
         max_payload_bytes=args.max_span_bytes,
         atomizer=Atomizer(max_span_bytes=args.max_span_bytes),
+        field_max_rms=args.field_max_rms,
+        energy_decay_bounds=energy_decay_bounds,
     )
     reloaded.load(checkpoint_path)
     reload_state = {
@@ -240,6 +272,13 @@ def main() -> None:
             "finite_losses": all(np.isfinite(all_losses)),
             "finite_parameters": finite_model(model),
             "nan_or_inf": not all(np.isfinite(all_losses)) or not finite_model(model),
+            "field_rms_before_max": max(field_rms_before_values),
+            "field_rms_after_max": max(field_rms_after_values),
+            "field_scale_min": min(field_scales),
+            "field_norm_max": max(field_norm_values),
+            "field_limited_steps": sum(scale < 0.999999 for scale in field_scales),
+            "field_limited_fraction": sum(scale < 0.999999 for scale in field_scales) / len(field_scales),
+            "final_dynamics": dynamics_state,
             "final_atoms_before_validation": len(reloaded.core.atoms),
         },
         "validation": {

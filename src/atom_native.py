@@ -139,6 +139,40 @@ class AtomSurfaceHead(nn.Module):
         return bytes(int(value) for value in values.tolist())
 
 
+class FieldAmplitudeController:
+    """Bound field amplitude without changing the toroidal core equations.
+
+    The controller is an opt-in safety policy around the existing adapter.  It
+    rescales only when the field RMS exceeds ``max_rms``; directions and small
+    amplitudes are left untouched.  Dynamics, interactions and the eight atom
+    properties remain the same.
+    """
+
+    def __init__(self, max_rms: float | None = None, eps: float = 1e-6) -> None:
+        if max_rms is not None and max_rms <= 0:
+            raise ValueError("max_rms must be positive or None")
+        self.max_rms = max_rms
+        self.eps = eps
+
+    def __call__(self, field: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
+        rms_before = torch.sqrt(field.pow(2).mean() + self.eps)
+        if self.max_rms is None:
+            scale = torch.ones_like(rms_before)
+            stabilized = field
+        else:
+            scale = torch.minimum(
+                torch.ones_like(rms_before),
+                field.new_tensor(self.max_rms) / (rms_before + self.eps),
+            )
+            stabilized = field * scale
+        rms_after = torch.sqrt(stabilized.pow(2).mean() + self.eps)
+        return stabilized, {
+            "field_rms_before": float(rms_before.detach().item()),
+            "field_rms_after": float(rms_after.detach().item()),
+            "field_scale": float(scale.detach().item()),
+        }
+
+
 class AtomNativeModel(nn.Module):
     """Use existing ATOM dynamics with an atom-native input/output contract."""
 
@@ -149,6 +183,8 @@ class AtomNativeModel(nn.Module):
         n_atoms_max: int = 128,
         max_payload_bytes: int = 32,
         atomizer: Atomizer | None = None,
+        field_max_rms: float | None = None,
+        energy_decay_bounds: tuple[float, float] | None = None,
     ) -> None:
         super().__init__()
         self.atomizer = atomizer or Atomizer(max_span_bytes=max_payload_bytes)
@@ -161,6 +197,9 @@ class AtomNativeModel(nn.Module):
         self.compiler = AtomCompiler(self.atomizer.feature_dim, d_model)
         self.surface = AtomSurfaceHead(d_model, max_payload_bytes=max_payload_bytes)
         self.max_payload_bytes = max_payload_bytes
+        self.field_controller = FieldAmplitudeController(field_max_rms)
+        self.field_max_rms = field_max_rms
+        self.energy_decay_bounds = energy_decay_bounds
 
         # The legacy encoder and legacy 256-way production head are not used
         # by this adapter.  Keep them in the core checkpoint for compatibility,
@@ -177,6 +216,29 @@ class AtomNativeModel(nn.Module):
 
     def trainable_parameter_count(self) -> int:
         return sum(parameter.numel() for parameter in self.trainable_parameters)
+
+    def stabilize_dynamics_parameters(self) -> dict[str, float]:
+        """Project the unconstrained shared decay back into a physical range.
+
+        ``energy_decay`` is called a decay parameter by the core.  Without a
+        bound it can cross above one and turn the decay term into exponential
+        growth.  This projection is applied by the experiment after each
+        optimizer step; it does not alter ``src/toroidal/dynamics.py``.
+        """
+        parameter = self.core.dynamics.dynamics
+        with torch.no_grad():
+            if self.energy_decay_bounds is not None:
+                low, high = self.energy_decay_bounds
+                if not (0.0 < low <= high):
+                    raise ValueError("energy_decay_bounds must satisfy 0 < low <= high")
+                parameter.energy_decay.clamp_(low, high)
+            parameter.coupling_scale.clamp_(0.0, 2.0)
+            parameter.phase_sync.clamp_(-1.0, 1.0)
+        return {
+            "coupling_scale": float(parameter.coupling_scale.detach().item()),
+            "energy_decay": float(parameter.energy_decay.detach().item()),
+            "phase_sync": float(parameter.phase_sync.detach().item()),
+        }
 
     def reset_state(self, reset_atomizer: bool = True) -> None:
         """Start a new explicit episode while preserving learned weights."""
@@ -244,6 +306,7 @@ class AtomNativeModel(nn.Module):
         alpha_new = alpha_new + 0.1 * self.core.dynamics.dynamics.phase_sync * (
             left + right - 2.0 * alpha_new
         )
+        alpha_new, amplitude = self.field_controller(alpha_new)
 
         aggregates: list[dict] = []
         if len(self.core.atoms) > 10:
@@ -301,6 +364,7 @@ class AtomNativeModel(nn.Module):
             "abstractions": abstractions,
             "persistent_state": persistent_state,
             "n_atoms": len(self.core.atoms),
+            **amplitude,
         }
 
     def forward_packet(self, packet: AtomPacket) -> dict:
@@ -328,6 +392,9 @@ class AtomNativeModel(nn.Module):
             "n_atoms": len(self.core.atoms),
             "surface": surface,
             "field_norm": float(output["field"].detach().norm().item()),
+            "field_rms_before": output["field_rms_before"],
+            "field_rms_after": output["field_rms_after"],
+            "field_scale": output["field_scale"],
         }
 
     @torch.no_grad()
@@ -407,6 +474,8 @@ class AtomNativeModel(nn.Module):
                 "n_atoms_max": core.encoder.n_atoms_max,
                 "max_payload_bytes": self.max_payload_bytes,
                 "atomizer_version": self.atomizer.VERSION,
+                "field_max_rms": self.field_max_rms,
+                "energy_decay_bounds": self.energy_decay_bounds,
             },
         }
 

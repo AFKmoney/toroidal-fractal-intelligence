@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 
-from src.atom_native import AtomNativeModel
+from src.atom_native import AtomNativeModel, FieldAmplitudeController
 from src.io.atomizer import Atomizer
 
 
@@ -62,6 +62,34 @@ class AtomizerTests(unittest.TestCase):
 
 
 class AtomNativeModelTests(unittest.TestCase):
+    def test_field_controller_caps_only_large_rms(self) -> None:
+        controller = FieldAmplitudeController(max_rms=2.0)
+        field, info = controller(torch.ones(8, 8) * 10.0)
+        self.assertLessEqual(info["field_rms_after"], 2.001)
+        self.assertLess(info["field_scale"], 1.0)
+        small, small_info = controller(torch.ones(8, 8) * 0.5)
+        torch.testing.assert_close(small, torch.ones(8, 8) * 0.5)
+        self.assertEqual(small_info["field_scale"], 1.0)
+
+    def test_dynamics_parameter_projection(self) -> None:
+        model = AtomNativeModel(
+            d_model=4,
+            n_modes=4,
+            n_atoms_max=32,
+            max_payload_bytes=12,
+            field_max_rms=2.0,
+            energy_decay_bounds=(0.9, 0.999),
+            atomizer=Atomizer(max_span_bytes=12),
+        )
+        with torch.no_grad():
+            model.core.dynamics.dynamics.energy_decay.fill_(2.0)
+            model.core.dynamics.dynamics.coupling_scale.fill_(4.0)
+            model.core.dynamics.dynamics.phase_sync.fill_(3.0)
+        state = model.stabilize_dynamics_parameters()
+        self.assertAlmostEqual(state["energy_decay"], 0.999, places=5)
+        self.assertAlmostEqual(state["coupling_scale"], 2.0, places=5)
+        self.assertAlmostEqual(state["phase_sync"], 1.0, places=5)
+
     def test_forward_loss_backward_and_checkpoint_reload(self) -> None:
         atomizer = Atomizer(max_span_bytes=12)
         packets = atomizer.encode("alpha beta gamma delta epsilon.")

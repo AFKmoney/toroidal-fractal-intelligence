@@ -169,3 +169,6 @@ révèle aussi que le champ toroidal peut prendre des amplitudes très élevées
 La prochaine priorité scientifique n'est donc pas simplement d'ajouter des
 steps, mais de mesurer et corriger la stabilité d'amplitude avant de conclure
 qu'ATOM est efficace sur des flux beaucoup plus longs.
+
+La contre-expérience avec limite RMS et projection des paramètres est
+documentée dans [`ATOM_FIELD_STABILIZATION.md`](ATOM_FIELD_STABILIZATION.md).
