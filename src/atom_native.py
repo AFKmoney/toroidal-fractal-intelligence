@@ -397,6 +397,10 @@ class AtomNativeModel(nn.Module):
         self.merge_count_total = 0
         self._tick = 0
         self._prev_field_rms: float | None = None
+        # Detached rolling α snapshots for harder field-contrast negatives
+        # (mode-shuffle alone is too weak vs CE; inter-prompt collapse returns).
+        self._alpha_bank: list[torch.Tensor] = []
+        self._alpha_bank_max = 8
 
         # The legacy encoder and legacy 256-way production head are not used
         # by this adapter.  Keep them in the core checkpoint for compatibility,
@@ -459,6 +463,7 @@ class AtomNativeModel(nn.Module):
         self.core.abstraction_count = 0
         self._tick = 0
         self._prev_field_rms = None
+        self._alpha_bank = []
         if reset_atomizer:
             self.atomizer.reset()
 
@@ -714,10 +719,29 @@ class AtomNativeModel(nn.Module):
                 true_flat.unsqueeze(0),
                 surf_shuf["byte_logits"].reshape(-1).unsqueeze(0),
             ).squeeze()
+            # Harder negative: a prior living field from the episode bank (if any).
+            cos_b = true_flat.new_zeros(())
+            if self._alpha_bank:
+                bank_alpha = self._alpha_bank[int(torch.randint(len(self._alpha_bank), (1,)).item())]
+                bank_alpha = bank_alpha.to(device=alpha.device, dtype=alpha.dtype)
+                if bank_alpha.shape == alpha.shape and not torch.allclose(bank_alpha, alpha, atol=1e-5):
+                    surf_bank = self.surface(
+                        None, alpha=bank_alpha, persistent_state=persist_state, atom_r=atom_r
+                    )
+                    cos_b = F.cosine_similarity(
+                        true_flat.unsqueeze(0),
+                        surf_bank["byte_logits"].reshape(-1).unsqueeze(0),
+                    ).squeeze()
             margin = self.field_contrast_margin
-            contrast = F.relu(cos_z - margin) + F.relu(cos_s - margin)
+            # Tighter margin on bank negatives so inter-prompt logits must separate.
+            contrast = (
+                F.relu(cos_z - margin)
+                + F.relu(cos_s - margin)
+                + F.relu(cos_b - (margin - 0.15))
+            )
             info["field_logit_cos_zero"] = float(cos_z.detach().item())
             info["field_logit_cos_shuf"] = float(cos_s.detach().item())
+            info["field_logit_cos_bank"] = float(cos_b.detach().item()) if cos_b.ndim == 0 or cos_b.numel()==1 else float("nan")
             info["field_contrast_loss"] = float(contrast.detach().item())
 
         if self.field_loss_weight > 0:
@@ -738,6 +762,12 @@ class AtomNativeModel(nn.Module):
     def transition_loss(self, current: AtomPacket, target: AtomPacket) -> tuple[torch.Tensor, dict]:
         """Predict the complete next atom surface packet (+ optional field aux)."""
         output = self.forward_packet(current)
+        # Update α bank (detached) for cross-field contrast on later steps.
+        with torch.no_grad():
+            snap = output["field"].detach().clone()
+            self._alpha_bank.append(snap)
+            if len(self._alpha_bank) > self._alpha_bank_max:
+                self._alpha_bank.pop(0)
         surface = output["surface"]
         payload = target.payload[: self.max_payload_bytes]
         target_length = torch.tensor(
