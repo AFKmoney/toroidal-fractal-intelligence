@@ -361,6 +361,12 @@ class AtomNativeModel(nn.Module):
         atomizer: Atomizer | None = None,
         field_max_rms: float | None = None,
         energy_decay_bounds: tuple[float, float] | None = None,
+        enable_merge: bool = True,
+        slow_every: int = 1,
+        field_loss_weight: float = 0.0,
+        field_contrast_weight: float = 0.0,
+        field_contrast_margin: float = 0.55,
+        slow_rms_rel_tol: float = 0.15,
     ) -> None:
         super().__init__()
         self.atomizer = atomizer or Atomizer(max_span_bytes=max_payload_bytes)
@@ -380,6 +386,17 @@ class AtomNativeModel(nn.Module):
         if energy_decay_bounds is None:
             energy_decay_bounds = DEFAULT_ENERGY_DECAY_BOUNDS
         self.energy_decay_bounds = energy_decay_bounds
+        # Continuum intelligence knobs (structure + field dependence, not Θ growth).
+        self.enable_merge = bool(enable_merge)
+        self.slow_every = max(1, int(slow_every))
+        self.field_loss_weight = float(field_loss_weight)
+        self.field_contrast_weight = float(field_contrast_weight)
+        self.field_contrast_margin = float(field_contrast_margin)
+        self.slow_rms_rel_tol = float(slow_rms_rel_tol)
+        self.field_probe = nn.Linear(self.surface.field_feat_dim, self.atomizer.feature_dim)
+        self.merge_count_total = 0
+        self._tick = 0
+        self._prev_field_rms: float | None = None
 
         # The legacy encoder and legacy 256-way production head are not used
         # by this adapter.  Keep them in the core checkpoint for compatibility,
@@ -440,6 +457,8 @@ class AtomNativeModel(nn.Module):
         self.core.energy_history = []
         self.core.consolidation_count = 0
         self.core.abstraction_count = 0
+        self._tick = 0
+        self._prev_field_rms = None
         if reset_atomizer:
             self.atomizer.reset()
 
@@ -481,8 +500,56 @@ class AtomNativeModel(nn.Module):
             legacy_state=legacy,
         )
 
+    def _maybe_merge_atoms(self) -> int:
+        """MERGE coherent structural atoms into heavier ones (detached memory)."""
+        if not self.enable_merge or len(self.core.atoms) < 2:
+            return 0
+        atoms = self.core.atoms
+        merged, remove_idx, merge_count = self.core.aggregation.merge_coherent(
+            atoms.r,
+            atoms.phi,
+            atoms.omega,
+            atoms.E,
+            atoms.kappa,
+            atoms.M,
+            atoms.tau,
+            atoms.rho,
+        )
+        if merge_count <= 0 or not remove_idx:
+            return 0
+        atoms.remove(remove_idx)
+        new_atoms = [
+            ToroidalAtom(
+                r=item["r"].detach().clone(),
+                phi=item["phi"].detach().clone(),
+                omega=item["omega"].detach().clone(),
+                E=item["E"].detach().clone(),
+                kappa=item["kappa"].detach().clone(),
+                M=item["M"].detach().clone(),
+                tau=item["tau"].detach().clone(),
+                rho=item["rho"].detach().clone(),
+            )
+            for item in merged
+        ]
+        atoms.extend(new_atoms)
+        self.merge_count_total += merge_count
+        return merge_count
+
+    def _field_rms_stable(self, rms: float) -> bool:
+        prev = self._prev_field_rms
+        self._prev_field_rms = rms
+        if prev is None:
+            return False
+        return abs(rms - prev) / (abs(prev) + 1e-6) <= self.slow_rms_rel_tol
+
     def _advance(self, atom: ToroidalAtom, operation: torch.Tensor, confidence: torch.Tensor) -> dict:
-        """Advance the unchanged toroidal core by one compiled atom."""
+        """Advance the unchanged toroidal core by one compiled atom.
+
+        Fast path (every tick): inject + evolve + surface.
+        Slow path (``slow_every`` + RMS-stable): abstraction + consolidation.
+        Optional MERGE densifies coherent structural memory without GPU farms.
+        """
+        self._tick += 1
         self.core.state.add_atom_contribution(atom.r, atom.phi, atom.omega, atom.E, atom.kappa)
 
         # Structural memory is intentionally detached from the current loss
@@ -498,6 +565,7 @@ class AtomNativeModel(nn.Module):
             rho=atom.rho.detach().clone(),
         )
         self.core.atoms.add(memory_atom)
+        merge_count = self._maybe_merge_atoms()
 
         alpha = self.core.state.get_field().detach().clone()
         alpha_new = self.core.dynamics.evolve(alpha, input_token=atom.r)
@@ -509,44 +577,52 @@ class AtomNativeModel(nn.Module):
         )
         alpha_new, amplitude = self.field_controller(alpha_new)
 
-        aggregates: list[dict] = []
-        if len(self.core.atoms) > 10:
-            aggregates, _ = self.core.aggregation.aggregate(
-                self.core.atoms.r,
-                self.core.atoms.phi,
-                self.core.atoms.omega,
-                self.core.atoms.E,
-                self.core.atoms.kappa,
-                self.core.atoms.M,
-                self.core.atoms.tau,
-                self.core.atoms.rho,
-            )
-        abstractions: list[dict] = []
-        for aggregate in aggregates:
-            index = self.core.abstraction.create_or_update_abstraction([aggregate])
-            if index >= 0:
-                abstractions.append(
-                    {
-                        "id": index,
-                        "pattern": self.core.abstraction.abstraction_memory[index].detach(),
-                    }
-                )
-                self.core.abstraction_count += 1
-        self.core.abstraction.step_age()
+        rms_after = float(amplitude["field_rms_after"])
+        do_slow = self.slow_every <= 1 or (
+            self._tick % self.slow_every == 0 and self._field_rms_stable(rms_after)
+        )
+        if self.slow_every > 1 and self._tick % self.slow_every != 0:
+            self._prev_field_rms = rms_after
 
+        aggregates: list[dict] = []
+        abstractions: list[dict] = []
         persistent_state = None
-        if len(self.core.energy_history) > 5:
-            energy = self.core.atoms.E.mean(dim=0)
-            stability = self.core.consolidation.compute_stability(
-                energy, self.core.energy_history
-            )
-            persistent_state, mask = self.core.consolidation.consolidate(
-                alpha_new,
-                energy.unsqueeze(0),
-                stability.unsqueeze(0),
-            )
-            if mask.any():
-                self.core.consolidation_count += int(mask.sum().item())
+        if do_slow:
+            if len(self.core.atoms) > 10:
+                aggregates, _ = self.core.aggregation.aggregate(
+                    self.core.atoms.r,
+                    self.core.atoms.phi,
+                    self.core.atoms.omega,
+                    self.core.atoms.E,
+                    self.core.atoms.kappa,
+                    self.core.atoms.M,
+                    self.core.atoms.tau,
+                    self.core.atoms.rho,
+                )
+            for aggregate in aggregates:
+                index = self.core.abstraction.create_or_update_abstraction([aggregate])
+                if index >= 0:
+                    abstractions.append(
+                        {
+                            "id": index,
+                            "pattern": self.core.abstraction.abstraction_memory[index].detach(),
+                        }
+                    )
+                    self.core.abstraction_count += 1
+            self.core.abstraction.step_age()
+
+            if len(self.core.energy_history) > 5:
+                energy = self.core.atoms.E.mean(dim=0)
+                stability = self.core.consolidation.compute_stability(
+                    energy, self.core.energy_history
+                )
+                persistent_state, mask = self.core.consolidation.consolidate(
+                    alpha_new,
+                    energy.unsqueeze(0),
+                    stability.unsqueeze(0),
+                )
+                if mask.any():
+                    self.core.consolidation_count += int(mask.sum().item())
         self.core.energy_history.append(self.core.atoms.E.mean(dim=0).detach())
         self.core.energy_history = self.core.energy_history[-20:]
 
@@ -576,6 +652,10 @@ class AtomNativeModel(nn.Module):
             "abstractions": abstractions,
             "persistent_state": persistent_state,
             "n_atoms": len(self.core.atoms),
+            "merge_count": merge_count,
+            "merge_count_total": self.merge_count_total,
+            "slow_tick": do_slow,
+            "atom_r": atom.r,
             **amplitude,
         }
 
@@ -584,8 +664,79 @@ class AtomNativeModel(nn.Module):
         atom, operation, confidence = self.compiler(features, atom_count=len(self.core.atoms))
         return self._advance(atom, operation, confidence)
 
+    def _field_auxiliary_losses(
+        self,
+        output: dict,
+        current: AtomPacket,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Keep surface conditioned on α; probe persistence from field features.
+
+        Contrastive hinge: logits from true α must differ from zeroed / shuffled α
+        (cosine below margin). Persistence probe: reconstruct current packet
+        features from spectral field feats. Weighted small vs CE so bytes still learn.
+        """
+        device = output["field"].device
+        zero = torch.zeros((), device=device)
+        info: dict[str, float] = {
+            "field_contrast_loss": 0.0,
+            "field_persist_loss": 0.0,
+            "field_logit_cos_zero": float("nan"),
+            "field_logit_cos_shuf": float("nan"),
+        }
+        contrast = zero
+        persist = zero
+        alpha = output["field"]
+        atom_r = output.get("atom_r")
+        persist_state = output.get("persistent_state")
+        if persist_state is None:
+            persist_state = self.core.consolidation.persistence
+        true_flat = output["surface"]["byte_logits"].reshape(-1)
+
+        if self.field_contrast_weight > 0:
+            surf_zero = self.surface(
+                None,
+                alpha=torch.zeros_like(alpha),
+                persistent_state=persist_state,
+                atom_r=atom_r,
+            )
+            cos_z = F.cosine_similarity(
+                true_flat.unsqueeze(0),
+                surf_zero["byte_logits"].reshape(-1).unsqueeze(0),
+            ).squeeze()
+            if alpha.shape[0] > 1:
+                shuf_alpha = alpha[torch.randperm(alpha.shape[0], device=alpha.device)]
+            else:
+                shuf_alpha = -alpha
+            surf_shuf = self.surface(
+                None, alpha=shuf_alpha, persistent_state=persist_state, atom_r=atom_r
+            )
+            cos_s = F.cosine_similarity(
+                true_flat.unsqueeze(0),
+                surf_shuf["byte_logits"].reshape(-1).unsqueeze(0),
+            ).squeeze()
+            margin = self.field_contrast_margin
+            contrast = F.relu(cos_z - margin) + F.relu(cos_s - margin)
+            info["field_logit_cos_zero"] = float(cos_z.detach().item())
+            info["field_logit_cos_shuf"] = float(cos_s.detach().item())
+            info["field_contrast_loss"] = float(contrast.detach().item())
+
+        if self.field_loss_weight > 0:
+            feats = self.surface.field_feat_norm(
+                self.surface.field_features(alpha, persist_state, atom_r)
+            )
+            pred = self.field_probe(feats)
+            target_feat = current.features.to(device=pred.device, dtype=pred.dtype)
+            cos = F.cosine_similarity(pred.unsqueeze(0), target_feat.unsqueeze(0)).squeeze()
+            persist = 1.0 - cos
+            info["field_persist_loss"] = float(persist.detach().item())
+
+        total_aux = (
+            self.field_contrast_weight * contrast + self.field_loss_weight * persist
+        )
+        return total_aux, info
+
     def transition_loss(self, current: AtomPacket, target: AtomPacket) -> tuple[torch.Tensor, dict]:
-        """Predict the complete next atom surface packet."""
+        """Predict the complete next atom surface packet (+ optional field aux)."""
         output = self.forward_packet(current)
         surface = output["surface"]
         payload = target.payload[: self.max_payload_bytes]
@@ -596,9 +747,12 @@ class AtomNativeModel(nn.Module):
         target_bytes = torch.tensor(list(payload), dtype=torch.long, device=surface["byte_logits"].device)
         byte_logits = surface["byte_logits"][: len(payload)]
         byte_loss = F.cross_entropy(byte_logits, target_bytes)
-        loss = length_loss + byte_loss
+        ce_loss = length_loss + byte_loss
+        aux_loss, aux_info = self._field_auxiliary_losses(output, current)
+        loss = ce_loss + aux_loss
         return loss, {
             "loss": float(loss.detach().item()),
+            "ce_loss": float(ce_loss.detach().item()),
             "length_loss": float(length_loss.detach().item()),
             "byte_loss": float(byte_loss.detach().item()),
             "n_atoms": len(self.core.atoms),
@@ -607,6 +761,10 @@ class AtomNativeModel(nn.Module):
             "field_rms_before": output["field_rms_before"],
             "field_rms_after": output["field_rms_after"],
             "field_scale": output["field_scale"],
+            "merge_count": int(output.get("merge_count", 0)),
+            "merge_count_total": int(output.get("merge_count_total", self.merge_count_total)),
+            "slow_tick": bool(output.get("slow_tick", True)),
+            **aux_info,
         }
 
     @torch.no_grad()
@@ -708,7 +866,14 @@ class AtomNativeModel(nn.Module):
                 "atomizer_version": self.atomizer.VERSION,
                 "field_max_rms": self.field_max_rms,
                 "energy_decay_bounds": self.energy_decay_bounds,
+                "enable_merge": self.enable_merge,
+                "slow_every": self.slow_every,
+                "field_loss_weight": self.field_loss_weight,
+                "field_contrast_weight": self.field_contrast_weight,
+                "field_contrast_margin": self.field_contrast_margin,
+                "merge_count_total": self.merge_count_total,
             },
+            "field_probe": self.field_probe.state_dict(),
         }
 
     def save(self, path: str | Path, extra_state: dict | None = None) -> str:
@@ -762,6 +927,23 @@ class AtomNativeModel(nn.Module):
         core.consolidation_count = core_state.get("consolidation_count", 0)
         core.abstraction_count = core_state.get("abstraction_count", 0)
         self.atomizer.load_state_dict(checkpoint["atomizer"])
+        if "field_probe" in checkpoint:
+            try:
+                self.field_probe.load_state_dict(checkpoint["field_probe"])
+            except Exception:
+                pass  # feature_dim / d_model drift — keep fresh probe
+        cfg = checkpoint.get("config") or {}
+        if "enable_merge" in cfg:
+            self.enable_merge = bool(cfg["enable_merge"])
+        if "slow_every" in cfg:
+            self.slow_every = max(1, int(cfg["slow_every"]))
+        if "field_loss_weight" in cfg:
+            self.field_loss_weight = float(cfg["field_loss_weight"])
+        if "field_contrast_weight" in cfg:
+            self.field_contrast_weight = float(cfg["field_contrast_weight"])
+        if "field_contrast_margin" in cfg:
+            self.field_contrast_margin = float(cfg["field_contrast_margin"])
+        self.merge_count_total = int(cfg.get("merge_count_total", 0) or 0)
         # Always repair drifted dynamics (e.g. energy_decay~0.001 from 1.05M persist).
         dynamics_state = self.stabilize_dynamics_parameters()
         training = checkpoint.get("training")

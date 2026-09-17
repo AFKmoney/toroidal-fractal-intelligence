@@ -96,13 +96,15 @@ class ToroidalAtomCollection(nn.Module):
         super().__init__()
         self.atoms: list[ToroidalAtom] = atoms or []
         self._buffers: dict[str, torch.Tensor] = {}
+        self._dirty = True
         if atoms:
             self._rebuild_buffers()
 
     def _rebuild_buffers(self) -> None:
         if not self.atoms:
+            self._buffers = {}
+            self._dirty = False
             return
-        device = self.atoms[0].r.device
         self._buffers = {
             "r": torch.stack([a.r for a in self.atoms]),
             "phi": torch.stack([a.phi for a in self.atoms]),
@@ -113,40 +115,69 @@ class ToroidalAtomCollection(nn.Module):
             "tau": torch.stack([a.tau for a in self.atoms]),
             "rho": torch.stack([a.rho for a in self.atoms]),
         }
+        self._dirty = False
+
+    def _ensure_buffers(self) -> None:
+        if getattr(self, "_dirty", True):
+            self._rebuild_buffers()
 
     @property
-    def r(self) -> torch.Tensor: return self._buffers.get("r", torch.zeros(0))
+    def r(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("r", torch.zeros(0))
+
     @property
-    def phi(self) -> torch.Tensor: return self._buffers.get("phi", torch.zeros(0))
+    def phi(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("phi", torch.zeros(0))
+
     @property
-    def omega(self) -> torch.Tensor: return self._buffers.get("omega", torch.zeros(0))
+    def omega(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("omega", torch.zeros(0))
+
     @property
-    def E(self) -> torch.Tensor: return self._buffers.get("E", torch.zeros(0))
+    def E(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("E", torch.zeros(0))
+
     @property
-    def kappa(self) -> torch.Tensor: return self._buffers.get("kappa", torch.zeros(0))
+    def kappa(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("kappa", torch.zeros(0))
+
     @property
-    def M(self) -> torch.Tensor: return self._buffers.get("M", torch.zeros(0))
+    def M(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("M", torch.zeros(0))
+
     @property
-    def tau(self) -> torch.Tensor: return self._buffers.get("tau", torch.zeros(0))
+    def tau(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("tau", torch.zeros(0))
+
     @property
-    def rho(self) -> torch.Tensor: return self._buffers.get("rho", torch.zeros(0))
+    def rho(self) -> torch.Tensor:
+        self._ensure_buffers()
+        return self._buffers.get("rho", torch.zeros(0))
 
     def __len__(self) -> int:
         return len(self.atoms)
 
     def add(self, atom: ToroidalAtom) -> None:
         self.atoms.append(atom)
-        self._rebuild_buffers()
+        self._dirty = True
 
     def extend(self, atoms: list[ToroidalAtom]) -> None:
-        self.atoms.extend(atoms)
-        self._rebuild_buffers()
+        if atoms:
+            self.atoms.extend(atoms)
+            self._dirty = True
 
     def remove(self, indices: list[int]) -> None:
         # Remove in reverse order to preserve indices
         for i in sorted(indices, reverse=True):
             self.atoms.pop(i)
-        self._rebuild_buffers()
+        self._dirty = True
 
     def top_by_energy(self, k: int) -> list[ToroidalAtom]:
         energies = self.E.sum(dim=-1) if self.E.numel() else torch.zeros(len(self.atoms))
