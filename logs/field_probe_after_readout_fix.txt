@@ -1,0 +1,21 @@
+[probe] loading /workspace/repos/toroidal-fractal-intelligence/checkpoints/atom_native_chat_talk/atom_native.pt (read-only, eval, no optimizer)
+[probe] d_model=64 n_modes=64 step=2100000
+[probe] prompt='Bonjour'
+        RMS 0.005059 -> 0.049053 (norm 0.3238 -> 3.1394) atoms 3 -> 22
+        gen_preview='rap�t �.�WrrUo(��G��Bl�Uo���G��Bl44oC��G��Bl����44o3��GʨBl�:��4UoCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBlt:��44oCj�G'
+[probe] prompt='Qui es-tu ?'
+        RMS 0.007600 -> 0.045207 (norm 0.4864 -> 2.8932) atoms 7 -> 26
+        gen_preview='\na�ntruo*� GʜB�S�e�rUo(��G��Bl�Uo���G��Bl�Uo(��G��Bl2UoC��G��Bl����44o3��G�MBl�:��4UoC��GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBlt:��44'
+[probe] prompt='Il était une fois'
+        RMS 0.007744 -> 0.050775 (norm 0.4956 -> 3.2496) atoms 6 -> 25
+        gen_preview='rLp�t �.ÚorUo(jsG��Bl�Uo���G��Bl2UoC��G��Bl44oCj�G��Bl44oCj�GʨBl44oCj�GʨBl44oCj�GʨBl44oCj�GʨBl44oCj�G_�Bl�:��44oCj�GʨBlt:��44oCj�GʨBlt:��44oCj�GʨBlt:��4'
+[probe] prompt='Utilisateur: Bonjour\nAssistant:'
+        RMS 0.005059 -> 0.049053 (norm 0.3238 -> 3.1394) atoms 3 -> 22
+        gen_preview='rap�t �.�WrrUo(��G��Bl�Uo���G��Bl44oC��G��Bl����44o3��GʨBl�:��4UoCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBlt:��44oCj�G'
+[probe] mean off-diag cosine logits=0.937488 alpha=0.738060
+[probe] reconstruction_succeeds=True field_differs=True
+[probe] wrote /workspace/repos/toroidal-fractal-intelligence/logs/field_probe_report.json
+[probe] wrote /workspace/repos/toroidal-fractal-intelligence/docs/FIELD_PROBE.md
+[probe] wrote /workspace/repos/toroidal-fractal-intelligence/docs/PERSISTENCE_TEST.md
+[probe] updated /workspace/repos/toroidal-fractal-intelligence/docs/SCALE.md
+[probe] VERDICT: field is carrying structure (prompt-sensitive; diagnostic reconstruction partial)

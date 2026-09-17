@@ -9,8 +9,8 @@ and replaces the 50k-class surface target with a bounded byte packet head.
 The recurrent field, RK4 dynamics, interactions, aggregation, abstraction and
 consolidation are the existing ATOM components.
 
-This is an opt-in research path while the legacy GPT-2-compatible API remains
-available in ``src.toroidal.model``.
+This is the primary text path. Legacy GPT-2 tokenizer wrappers live under
+``_quarantine_transformer_slop/``. The toroidal core remains in ``src.toroidal``.
 """
 
 from __future__ import annotations
@@ -25,6 +25,10 @@ import torch.nn.functional as F
 from .io.atomizer import AtomPacket, Atomizer
 from .toroidal.atom import ToroidalAtom
 from .toroidal.model import ToroidalFractalIntelligence
+
+# Sane band for shared energy_decay (always applied).  Values near 0 turn the
+# decay term into near-total wipe; values >1 flip it into growth.
+DEFAULT_ENERGY_DECAY_BOUNDS: tuple[float, float] = (0.3, 0.95)
 
 
 class AtomCompiler(nn.Module):
@@ -84,29 +88,174 @@ class AtomCompiler(nn.Module):
 
 
 class AtomSurfaceHead(nn.Module):
-    """Decode one variable-length surface packet from the toroidal state.
+    """Decode one variable-length surface packet from the living toroidal field.
 
     The output alphabet is raw bytes (256 classes), not GPT-2's 50,257 token
     vocabulary.  A bounded packet contains 1..``max_payload_bytes`` bytes and
-    has a separate length distribution.  This keeps exact byte reconstruction
-    possible while allowing one recurrent ATOM tick to carry a span.
+    has a separate length distribution.
+
+    Readout contract (field-first):
+      surface_input = f(spectral field α, optional consolidation, atom.r)
+    A LayerNorm + legacy linear path is retained for checkpoint compatibility,
+    but every decode also mixes an explicit spectral summary of α (mean‖std)
+    and a bias-free field→logit skip so prompt-conditioned α is not drowned by
+    a shared decoder bias (the failure mode where inter-prompt logit cosine
+    stayed ≈ 0.998 while α cosine was ≈ 0.74).
     """
 
-    def __init__(self, d_model: int, max_payload_bytes: int = 32) -> None:
+    # Printable UTF-8 / Latin-1 friendly prior used when ``prefer_printable``.
+    _PRINTABLE = set(range(0x20, 0x7F)) | {0x09, 0x0A, 0x0D} | set(range(0xC2, 0xF5)) | set(range(0x80, 0xC0))
+
+    def __init__(
+        self,
+        d_model: int,
+        max_payload_bytes: int = 32,
+        n_modes: int | None = None,
+    ) -> None:
         super().__init__()
         if max_payload_bytes < 1:
             raise ValueError("max_payload_bytes must be positive")
         self.d_model = d_model
+        self.n_modes = int(n_modes) if n_modes is not None else d_model
         self.max_payload_bytes = max_payload_bytes
+        # Spectral living-field features: [mean(α) ‖ std(α) ‖ persist ‖ atom.r]
+        self.field_feat_dim = 4 * d_model
+        self.field_feat_norm = nn.LayerNorm(self.field_feat_dim)
+        self.field_to_state = nn.Linear(self.field_feat_dim, d_model)
+        # sigmoid(field_gate)≈0.88 at init → field-conditioned state dominates.
+        self.field_gate = nn.Parameter(torch.tensor(2.0))
+        # Bias-free skip so α differences reach logits even when |b| is large.
+        self.field_byte_skip = nn.Linear(self.field_feat_dim, max_payload_bytes * 256, bias=False)
+        self.field_length_skip = nn.Linear(self.field_feat_dim, max_payload_bytes, bias=False)
+        # softplus(4)≈4.0 — enough for inter-prompt logit cosine << 0.998 at load.
+        self.skip_gate = nn.Parameter(torch.tensor(1.0))
+        self.state_norm = nn.LayerNorm(d_model)
         self.byte_decoder = nn.Linear(d_model, max_payload_bytes * 256)
         self.length_decoder = nn.Linear(d_model, max_payload_bytes)
+        self._init_field_readout()
 
-    def forward(self, state: torch.Tensor) -> dict[str, torch.Tensor]:
+    def _init_field_readout(self) -> None:
+        """Identity-on-mean + std residual; Xavier skips. Safe for fresh + migrate."""
+        with torch.no_grad():
+            self.field_to_state.weight.zero_()
+            eye = torch.eye(self.d_model, device=self.field_to_state.weight.device)
+            self.field_to_state.weight[:, : self.d_model].copy_(eye)
+            self.field_to_state.weight[:, self.d_model : 2 * self.d_model].copy_(0.5 * eye)
+            self.field_to_state.bias.zero_()
+            nn.init.xavier_uniform_(self.field_byte_skip.weight)
+            nn.init.xavier_uniform_(self.field_length_skip.weight)
+            self.field_gate.fill_(2.0)
+            self.skip_gate.fill_(1.0)
+
+    def field_features(
+        self,
+        alpha: torch.Tensor,
+        persistent_state: torch.Tensor | None = None,
+        atom_r: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Build spectral living-field features from α (+ consolidation, atom)."""
+        if alpha.ndim == 1:
+            alpha = alpha.unsqueeze(0)
+        mean = alpha.mean(dim=0)
+        std = alpha.std(dim=0, unbiased=False)
+        if persistent_state is None:
+            persist = torch.zeros_like(mean)
+        else:
+            persist = (
+                persistent_state.mean(dim=0)
+                if persistent_state.ndim > 1
+                else persistent_state
+            )
+            persist = persist.to(device=mean.device, dtype=mean.dtype).reshape(-1)
+            if persist.numel() != mean.numel():
+                persist = persist[: mean.numel()]
+                if persist.numel() < mean.numel():
+                    persist = F.pad(persist, (0, mean.numel() - persist.numel()))
+        if atom_r is None:
+            atom = torch.zeros_like(mean)
+        else:
+            atom = atom_r.mean(dim=0) if atom_r.ndim > 1 else atom_r
+            atom = atom.to(device=mean.device, dtype=mean.dtype).reshape(-1)
+            if atom.numel() != mean.numel():
+                atom = atom[: mean.numel()]
+                if atom.numel() < mean.numel():
+                    atom = F.pad(atom, (0, mean.numel() - atom.numel()))
+        return torch.cat([mean, std, persist, atom], dim=-1)
+
+    def field_conditioned_state(
+        self,
+        alpha: torch.Tensor,
+        persistent_state: torch.Tensor | None = None,
+        atom_r: torch.Tensor | None = None,
+        legacy_state: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """d_model state where spectral α dominates (gated residual w/ legacy)."""
+        feats = self.field_feat_norm(
+            self.field_features(alpha, persistent_state, atom_r)
+        )
+        field_state = self.field_to_state(feats)
+        gate = torch.sigmoid(self.field_gate)
+        if legacy_state is None:
+            return field_state
+        legacy = legacy_state.mean(dim=0) if legacy_state.ndim > 1 else legacy_state
+        legacy = legacy.to(device=field_state.device, dtype=field_state.dtype)
+        return gate * field_state + (1.0 - gate) * legacy
+
+    def forward(
+        self,
+        state: torch.Tensor | None = None,
+        *,
+        alpha: torch.Tensor | None = None,
+        persistent_state: torch.Tensor | None = None,
+        atom_r: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Decode from living field α when provided; else legacy mean-state path."""
+        if alpha is not None:
+            feats = self.field_feat_norm(
+                self.field_features(alpha, persistent_state, atom_r)
+            )
+            field_state = self.field_to_state(feats)
+            gate = torch.sigmoid(self.field_gate)
+            if state is None:
+                combined = field_state
+            else:
+                legacy = state.mean(dim=0) if state.ndim > 1 else state
+                legacy = legacy.to(device=field_state.device, dtype=field_state.dtype)
+                combined = gate * field_state + (1.0 - gate) * legacy
+            h = self.state_norm(combined)
+            byte_logits = self.byte_decoder(h).view(self.max_payload_bytes, 256)
+            length_logits = self.length_decoder(h)
+            skip = F.softplus(self.skip_gate)
+            byte_logits = byte_logits + skip * self.field_byte_skip(feats).view(
+                self.max_payload_bytes, 256
+            )
+            length_logits = length_logits + skip * self.field_length_skip(feats)
+            return {"byte_logits": byte_logits, "length_logits": length_logits}
+
+        if state is None:
+            raise ValueError("AtomSurfaceHead.forward requires state or alpha")
         if state.ndim > 1:
             state = state.mean(dim=0)
+        state = self.state_norm(state)
         byte_logits = self.byte_decoder(state).view(self.max_payload_bytes, 256)
         length_logits = self.length_decoder(state)
         return {"byte_logits": byte_logits, "length_logits": length_logits}
+
+    def _apply_printable_bias(self, byte_logits: torch.Tensor, strength: float = 2.0) -> torch.Tensor:
+        """Softly discourage control/non-text bytes without hard-masking UTF-8."""
+        if strength <= 0:
+            return byte_logits
+        penalty = torch.full(
+            (256,),
+            -strength,
+            dtype=byte_logits.dtype,
+            device=byte_logits.device,
+        )
+        for value in self._PRINTABLE:
+            penalty[value] = 0.0
+        # Keep NUL strongly suppressed; allow tab/LF/CR via printable set.
+        penalty[0] = -strength * 2.0
+        return byte_logits + penalty
 
     def decode(
         self,
@@ -114,6 +263,7 @@ class AtomSurfaceHead(nn.Module):
         temperature: float = 1.0,
         top_k: int | None = None,
         deterministic: bool = True,
+        prefer_printable: bool = True,
     ) -> bytes:
         if temperature <= 0:
             raise ValueError("temperature must be positive")
@@ -121,21 +271,37 @@ class AtomSurfaceHead(nn.Module):
         if deterministic:
             length = int(length_logits.argmax().item()) + 1
         else:
-            length_values, length_indices = torch.topk(
-                length_logits,
-                min(top_k, length_logits.numel()) if top_k and top_k > 0 else length_logits.numel(),
-            )
-            length = int(length_indices[torch.multinomial(length_values.softmax(dim=-1), 1)].item()) + 1
+            k = length_logits.numel()
+            if top_k and top_k > 0:
+                k = min(top_k, k)
+            length_values, length_indices = torch.topk(length_logits, k)
+            # Guard against non-finite / zero-mass softmax from extreme logits.
+            probs = length_values.softmax(dim=-1)
+            if not torch.isfinite(probs).all() or float(probs.sum()) <= 0:
+                length = int(length_logits.argmax().item()) + 1
+            else:
+                length = int(length_indices[torch.multinomial(probs, 1)].item()) + 1
+        length = max(1, min(length, self.max_payload_bytes))
         byte_logits = output["byte_logits"][:length] / temperature
+        if prefer_printable:
+            byte_logits = self._apply_printable_bias(byte_logits)
         if deterministic:
             values = byte_logits.argmax(dim=-1)
         else:
             if top_k and top_k > 0 and top_k < byte_logits.shape[-1]:
                 values, indices = torch.topk(byte_logits, top_k, dim=-1)
-                values = torch.multinomial(values.softmax(dim=-1), 1)
-                values = indices.gather(-1, values).squeeze(-1)
+                probs = values.softmax(dim=-1)
+                if not torch.isfinite(probs).all():
+                    values = byte_logits.argmax(dim=-1)
+                else:
+                    picks = torch.multinomial(probs, 1)
+                    values = indices.gather(-1, picks).squeeze(-1)
             else:
-                values = torch.multinomial(byte_logits.softmax(dim=-1), num_samples=1).squeeze(-1)
+                probs = byte_logits.softmax(dim=-1)
+                if not torch.isfinite(probs).all():
+                    values = byte_logits.argmax(dim=-1)
+                else:
+                    values = torch.multinomial(probs, num_samples=1).squeeze(-1)
         return bytes(int(value) for value in values.tolist())
 
 
@@ -195,10 +361,14 @@ class AtomNativeModel(nn.Module):
             n_atoms_max=n_atoms_max,
         )
         self.compiler = AtomCompiler(self.atomizer.feature_dim, d_model)
-        self.surface = AtomSurfaceHead(d_model, max_payload_bytes=max_payload_bytes)
+        self.surface = AtomSurfaceHead(d_model, max_payload_bytes=max_payload_bytes, n_modes=n_modes)
         self.max_payload_bytes = max_payload_bytes
         self.field_controller = FieldAmplitudeController(field_max_rms)
         self.field_max_rms = field_max_rms
+        # Always-on physical band.  The weak prior floor (1e-3) let persist
+        # training drift energy_decay to ~0.001 and collapse the field.
+        if energy_decay_bounds is None:
+            energy_decay_bounds = DEFAULT_ENERGY_DECAY_BOUNDS
         self.energy_decay_bounds = energy_decay_bounds
 
         # The legacy encoder and legacy 256-way production head are not used
@@ -218,26 +388,32 @@ class AtomNativeModel(nn.Module):
         return sum(parameter.numel() for parameter in self.trainable_parameters)
 
     def stabilize_dynamics_parameters(self) -> dict[str, float]:
-        """Project the unconstrained shared decay back into a physical range.
+        """Project shared dynamics params into a physical range every step.
 
         ``energy_decay`` is called a decay parameter by the core.  Without a
-        bound it can cross above one and turn the decay term into exponential
-        growth.  This projection is applied by the experiment after each
-        optimizer step; it does not alter ``src/toroidal/dynamics.py``.
+        strong floor it can drift near 0 and wipe the field each tick
+        (``decay = (energy_decay - 1) * alpha``).  Bounds are always-on
+        (default ``DEFAULT_ENERGY_DECAY_BOUNDS``).  Does not alter
+        ``src/toroidal/dynamics.py``.
         """
         parameter = self.core.dynamics.dynamics
+        bounds = self.energy_decay_bounds or DEFAULT_ENERGY_DECAY_BOUNDS
+        low, high = bounds
+        if not (0.0 < low <= high):
+            raise ValueError("energy_decay_bounds must satisfy 0 < low <= high")
         with torch.no_grad():
-            if self.energy_decay_bounds is not None:
-                low, high = self.energy_decay_bounds
-                if not (0.0 < low <= high):
-                    raise ValueError("energy_decay_bounds must satisfy 0 < low <= high")
-                parameter.energy_decay.clamp_(low, high)
+            before = float(parameter.energy_decay.detach().item())
+            parameter.energy_decay.clamp_(low, high)
             parameter.coupling_scale.clamp_(0.0, 2.0)
             parameter.phase_sync.clamp_(-1.0, 1.0)
+            after = float(parameter.energy_decay.detach().item())
         return {
             "coupling_scale": float(parameter.coupling_scale.detach().item()),
-            "energy_decay": float(parameter.energy_decay.detach().item()),
+            "energy_decay": after,
             "phase_sync": float(parameter.phase_sync.detach().item()),
+            "energy_decay_before": before,
+            "energy_decay_repaired": before != after,
+            "energy_decay_bounds": (float(low), float(high)),
         }
 
     def reset_state(self, reset_atomizer: bool = True) -> None:
@@ -262,23 +438,38 @@ class AtomNativeModel(nn.Module):
         alpha: torch.Tensor,
         persistent_state: torch.Tensor | None,
         abstractions: list[dict],
+        atom_r: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        state = alpha.mean(dim=0) if alpha.ndim > 1 else alpha
+        """Field-dominated surface conditioning vector (also used by probes).
+
+        Prefer the spectral living-field readout when available so probes and
+        decode agree.  Abstractions remain a light residual on the legacy mean.
+        """
+        legacy = alpha.mean(dim=0) if alpha.ndim > 1 else alpha
         if persistent_state is not None:
-            state = state + (
+            legacy = legacy + (
                 persistent_state.mean(dim=0)
                 if persistent_state.ndim > 1
                 else persistent_state
             )
         if abstractions:
             patterns = [
-                item["pattern"].to(device=state.device, dtype=state.dtype).reshape(-1)
+                item["pattern"].to(device=legacy.device, dtype=legacy.dtype).reshape(-1)
                 for item in abstractions
                 if item["pattern"].numel() == self.core.encoder.d_model
             ]
             if patterns:
-                state = state + 0.1 * torch.stack(patterns).mean(dim=0)
-        return state
+                legacy = legacy + 0.1 * torch.stack(patterns).mean(dim=0)
+        # Always-on consolidation buffer when per-tick persist is absent.
+        persist = persistent_state
+        if persist is None:
+            persist = self.core.consolidation.persistence
+        return self.surface.field_conditioned_state(
+            alpha,
+            persistent_state=persist,
+            atom_r=atom_r,
+            legacy_state=legacy,
+        )
 
     def _advance(self, atom: ToroidalAtom, operation: torch.Tensor, confidence: torch.Tensor) -> dict:
         """Advance the unchanged toroidal core by one compiled atom."""
@@ -349,8 +540,19 @@ class AtomNativeModel(nn.Module):
         self.core.energy_history.append(self.core.atoms.E.mean(dim=0).detach())
         self.core.energy_history = self.core.energy_history[-20:]
 
-        output_state = self._output_state(alpha_new, persistent_state, abstractions)
-        surface = self.surface(output_state)
+        # Living consolidation buffer (EMA) — not only the per-tick consolidate().
+        persist_for_readout = persistent_state
+        if persist_for_readout is None:
+            persist_for_readout = self.core.consolidation.persistence
+        output_state = self._output_state(
+            alpha_new, persist_for_readout, abstractions, atom_r=atom.r
+        )
+        surface = self.surface(
+            output_state,
+            alpha=alpha_new,
+            persistent_state=persist_for_readout,
+            atom_r=atom.r,
+        )
         with torch.no_grad():
             self.core.state.alpha.copy_(alpha_new.detach())
             self.core.state.t.add_(self.core.dynamics.dt)
@@ -404,6 +606,7 @@ class AtomNativeModel(nn.Module):
         temperature: float = 1.0,
         top_k: int | None = None,
         deterministic: bool = True,
+        prefer_printable: bool = True,
     ) -> bytes:
         output = self.forward_packet(packet)
         return self.surface.decode(
@@ -411,6 +614,7 @@ class AtomNativeModel(nn.Module):
             temperature=temperature,
             top_k=top_k,
             deterministic=deterministic,
+            prefer_printable=prefer_printable,
         )
 
     def generate_packets(
@@ -421,13 +625,25 @@ class AtomNativeModel(nn.Module):
         top_k: int | None = None,
         deterministic: bool = True,
         max_length: int | None = None,
+        prefer_printable: bool = True,
+        reset: bool = True,
     ) -> bytes:
-        """Prime on a prompt and generate bounded atom surface packets."""
+        """Prime on a prompt and generate bounded atom surface packets.
+
+        Priming forwards every prompt packet into the toroidal field so the
+        surface head is conditioned on the full prompt, not only the final
+        span.  Each generated payload is committed back into the atomizer with
+        an inferred structural boundary (not a fixed ``generated`` tag) so
+        feature context stays closer to the training distribution.
+        """
         self.eval()
-        self.reset_state(reset_atomizer=True)
-        prompt_packets = self.atomizer.encode(prompt)
+        if reset:
+            self.reset_state(reset_atomizer=True)
+        prompt_packets = self.atomizer.encode(prompt, reset=reset)
         if not prompt_packets:
             raise ValueError("prompt must produce at least one atom packet")
+        # Consume the full prompt into the field; the last packet is the
+        # transition source for the first generated surface packet.
         for packet in prompt_packets[:-1]:
             self.forward_packet(packet)
         current = prompt_packets[-1]
@@ -438,10 +654,16 @@ class AtomNativeModel(nn.Module):
                 temperature=temperature,
                 top_k=top_k,
                 deterministic=deterministic,
+                prefer_printable=prefer_printable,
             )
+            if not payload:
+                break
             generated.extend(payload)
             current = self.atomizer.packet_from_payload(payload)
             if max_length is not None and len(generated) >= max_length:
+                break
+            # Soft stop on blank double-newline turns (dialogue corpora).
+            if generated.endswith(b"\n\n") and len(generated) > 2:
                 break
         if max_length is not None:
             return bytes(generated[:max_length])
@@ -491,7 +713,29 @@ class AtomNativeModel(nn.Module):
     def load(self, path: str | Path) -> dict | None:
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         self.compiler.load_state_dict(checkpoint["compiler"])
-        self.surface.load_state_dict(checkpoint["surface"])
+        surface_state = checkpoint["surface"]
+        # Legacy checkpoints predate ``state_norm`` and/or field-α readout.
+        # Load matching tensors; activate new field path; damp biases that drown α.
+        legacy_surface = "state_norm.weight" not in surface_state
+        field_readout_missing = "field_to_state.weight" not in surface_state
+        current = self.surface.state_dict()
+        filtered = {key: value for key, value in surface_state.items() if key in current and current[key].shape == value.shape}
+        missing = [key for key in current if key not in filtered]
+        self.surface.load_state_dict(filtered, strict=False)
+        if legacy_surface or missing or field_readout_missing:
+            with torch.no_grad():
+                if legacy_surface or "state_norm.weight" in missing:
+                    self.surface.state_norm.reset_parameters()
+                # Shrink decoder bias so field-conditioned Wx / skip can compete.
+                self.surface.byte_decoder.bias.mul_(0.05)
+                self.surface.length_decoder.bias.mul_(0.05)
+                if field_readout_missing or any(
+                    key.startswith("field_") or key in {"skip_gate"} for key in missing
+                ):
+                    self.surface._init_field_readout()
+                    self.surface.field_feat_norm.reset_parameters()
+                    # Open skip strongly so migrated ckpts separate logits before retrain.
+                    self.surface.skip_gate.fill_(4.0)
         core_state = checkpoint["core"]
         core = self.core
         core.encoder.load_state_dict(core_state["encoder"])
@@ -508,4 +752,13 @@ class AtomNativeModel(nn.Module):
         core.consolidation_count = core_state.get("consolidation_count", 0)
         core.abstraction_count = core_state.get("abstraction_count", 0)
         self.atomizer.load_state_dict(checkpoint["atomizer"])
-        return checkpoint.get("training")
+        # Always repair drifted dynamics (e.g. energy_decay~0.001 from 1.05M persist).
+        dynamics_state = self.stabilize_dynamics_parameters()
+        training = checkpoint.get("training")
+        if training is None:
+            training = {}
+        training = dict(training)
+        training["legacy_surface_migrated"] = bool(legacy_surface or missing or field_readout_missing)
+        training["field_readout_migrated"] = bool(field_readout_missing)
+        training["dynamics_on_load"] = dynamics_state
+        return training
