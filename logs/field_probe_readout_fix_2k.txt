@@ -1,0 +1,21 @@
+[probe] loading /workspace/repos/toroidal-fractal-intelligence/checkpoints/atom_native_readout_fix/atom_native.pt (read-only, eval, no optimizer)
+[probe] d_model=64 n_modes=64 step=2102000
+[probe] prompt='Bonjour'
+        RMS 0.004943 -> 0.037403 (norm 0.3164 -> 2.3938) atoms 3 -> 22
+        gen_preview=' n@�aide� U� \r\n\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+[probe] prompt='Qui es-tu ?'
+        RMS 0.008584 -> 0.019992 (norm 0.5494 -> 1.2795) atoms 7 -> 26
+        gen_preview=' nk> An> nk> ,k> A@�a>de� Ah>d\n�aite�\n\r\n\n\n\n\n\n\n\n\n\n'
+[probe] prompt='Il était une fois'
+        RMS 0.007162 -> 0.034807 (norm 0.4583 -> 2.2276) atoms 6 -> 25
+        gen_preview=' n@�aide� U�\r�\n�aiie\n\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+[probe] prompt='Utilisateur: Bonjour\nAssistant:'
+        RMS 0.004943 -> 0.037403 (norm 0.3164 -> 2.3938) atoms 3 -> 22
+        gen_preview=' n@�aide� U� \r\n\r\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+[probe] mean off-diag cosine logits=0.989733 alpha=0.386142
+[probe] reconstruction_succeeds=True field_differs=True
+[probe] wrote /workspace/repos/toroidal-fractal-intelligence/logs/field_probe_report.json
+[probe] wrote /workspace/repos/toroidal-fractal-intelligence/docs/FIELD_PROBE.md
+[probe] wrote /workspace/repos/toroidal-fractal-intelligence/docs/PERSISTENCE_TEST.md
+[probe] updated /workspace/repos/toroidal-fractal-intelligence/docs/SCALE.md
+[probe] VERDICT: field is carrying structure (prompt-sensitive; diagnostic reconstruction partial)
