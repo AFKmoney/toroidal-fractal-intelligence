@@ -117,3 +117,17 @@ PYTHONPATH=. .venv/bin/python tools/probe_field_persistence.py \
   (migrate-only bar was ~0.938; CE-smoke failure was ~0.99).
 - MERGE count > 0 on multi-atom episodes; n_atoms grows slower than ticks.
 - Dual clock: slow ticks << total ticks when `--slow-every > 1` and RMS stable.
+
+## Empirical notes (2026-09-17 PT)
+
+| Checkpoint | Surface logit off-diag cos | α off-diag cos | Notes |
+|---|---|---|---|
+| chat_talk migrate-only | **0.938** | 0.738 | Readout fix success bar |
+| readout_fix ~2k CE | ~0.99 | lower | CE re-kills prompt separation |
+| field_intel 3k (zero/shuf only, w=0.1) | **0.992** | **0.321** | Train fcos(true,zero)≈0.3–0.5 but inter-prompt still collapses |
+| field_intel v2 (α-bank + w=0.45) | _(retrain)_ | | Harder negatives from prior living fields |
+
+Lesson: contrasting against **zeroed** α is necessary but not sufficient.
+CE can learn a shared “non-zero field” logit template. Rolling **α bank**
+negatives force surface logits to track *which* field is present.
+
