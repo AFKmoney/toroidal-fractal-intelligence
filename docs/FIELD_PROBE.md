@@ -1,6 +1,6 @@
 # FIELD_PROBE — persistence vs surface-only byte-LM
 
-_Generated: 2026-09-17 11:50:07 PDT_
+_Generated: 2026-09-17 12:32:55 PDT_
 
 ## Thesis
 
@@ -19,19 +19,19 @@ This probe judges the **field** (alpha / consolidation / atoms), not only CE/gen
 
 | Prompt | RMS after prompt | RMS after 20 gen | Δ RMS | n_atoms after prompt |
 |--------|------------------|------------------|-------|----------------------|
-| 'Bonjour' | 0.005059 | 0.049053 | +0.043994 | 3 |
-| 'Qui es-tu ?' | 0.007600 | 0.045207 | +0.037607 | 7 |
-| 'Il était une fois' | 0.007744 | 0.050775 | +0.043031 | 6 |
-| 'Utilisateur: Bonjour\nAssistant:' | 0.005059 | 0.049053 | +0.043994 | 3 |
+| 'Bonjour' | 0.005059 | 0.027712 | +0.022653 | 3 |
+| 'Qui es-tu ?' | 0.007600 | 0.022847 | +0.015247 | 7 |
+| 'Il était une fois' | 0.007744 | 0.023826 | +0.016082 | 6 |
+| 'Utilisateur: Bonjour\nAssistant:' | 0.005059 | 0.027712 | +0.022653 | 3 |
 
 - Mean RMS after prompt: **0.006366**
-- Mean RMS after 20 gens: **0.048522**
+- Mean RMS after 20 gens: **0.025524**
 
 ### Prompt sensitivity (off-diagonal mean cosine)
 
 - Alpha (field): **0.738060**
 - Output state: **0.729136**
-- Surface logits: **0.937488**
+- Surface logits: **0.938330**
 - Persistence: **nan**
 
 Interpretation: cosine ≈ 1.0 ⇒ surface/field ignore prompt differences; meaningfully < 1 ⇒ prompt-sensitive state.
@@ -41,28 +41,28 @@ Interpretation: cosine ≈ 1.0 ⇒ surface/field ignore prompt differences; mean
 ```
 [
   [
-    1.000000027032506,
-    0.9243234229653693,
-    0.9671684689618122,
-    1.000000027032506
+    1.0000001761348754,
+    0.9259407647120298,
+    0.9659873513195253,
+    1.0000001761348754
   ],
   [
-    0.9243234229653693,
-    0.9999998401585619,
-    0.8419423936363037,
-    0.9243234229653693
+    0.9259407647120298,
+    0.9999997059026202,
+    0.8461239439376202,
+    0.9259407647120298
   ],
   [
-    0.9671684689618122,
-    0.8419423936363037,
-    1.0000001187418388,
-    0.9671684689618122
+    0.9659873513195253,
+    0.8461239439376202,
+    1.000000270526985,
+    0.9659873513195253
   ],
   [
-    1.000000027032506,
-    0.9243234229653693,
-    0.9671684689618122,
-    1.000000027032506
+    1.0000001761348754,
+    0.9259407647120298,
+    0.9659873513195253,
+    1.0000001761348754
   ]
 ]
 ```

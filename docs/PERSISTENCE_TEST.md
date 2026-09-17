@@ -19,8 +19,8 @@ whether CE improved.
 |--------|-------|
 | Checkpoint | `/workspace/repos/toroidal-fractal-intelligence/checkpoints/atom_native_chat_talk/atom_native.pt` |
 | Mean field RMS after prompt | 0.006366 |
-| Mean field RMS after 20 gen | 0.048522 |
-| Mean off-diag cosine (surface logits) | 0.937488 |
+| Mean field RMS after 20 gen | 0.025524 |
+| Mean off-diag cosine (surface logits) | 0.938330 |
 | Mean off-diag cosine (alpha) | 0.738060 |
 | Reconstruction succeeds (diagnostic) | True |
 | Verdict | field is carrying structure (prompt-sensitive; diagnostic reconstruction partial) |

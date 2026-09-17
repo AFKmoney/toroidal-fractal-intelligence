@@ -1,6 +1,6 @@
 # READOUT_FIX — surface decode reads living field α
 
-_Updated: 2026-09-17 PT_
+_Updated: 2026-09-17 12:32:30 PDT_
 
 ## Problem
 
@@ -16,8 +16,8 @@ Probe (`tools/probe_field_persistence.py`) on
 
 The living toroidal field **did** differ across prompts, but
 `AtomSurfaceHead` effectively ignored it: decode behaved like a last-token /
-bias-dominated byte-LM. Shared decoder bias (`|b| ≫ |W x|` after retrain)
-pinned logits so inter-prompt cosine stayed ≈ 1.0.
+bias-dominated byte-LM. Shared decoder bias pinned logits so inter-prompt
+cosine stayed ≈ 1.0 even after LayerNorm.
 
 ## Fix (readout only — no MERGE)
 
@@ -37,7 +37,7 @@ Architecture change in `src/atom_native.py`:
 
 3. **Backward-compatible load**
    - Old weights load by shape filter
-   - Missing field-readout keys → `_init_field_readout()`, bias ×0.05,
+   - Missing field-readout keys → seeded `_init_field_readout()`, bias ×0.05,
      `skip_gate ← 4.0` so migrated checkpoints separate logits **before** retrain
    - Fresh from-scratch init uses softer `skip_gate=1.0` so CE training stays stable
 
@@ -50,25 +50,30 @@ params at d_model=64). Stream train under `atom_native_stream_dialogue` was
 Checkpoint: `checkpoints/atom_native_chat_talk/atom_native.pt` (step 2.1M),
 read-only eval after migration (no weight update required for separation).
 
-| Metric | Before | After readout fix |
-|--------|--------|-------------------|
-| Mean off-diag cosine surface logits | **0.997991** | **0.937488** |
+| Metric | Before | After readout fix (migrate load) |
+|--------|--------|----------------------------------|
+| Mean off-diag cosine surface logits | **0.997991** | **~0.938** |
 | Mean off-diag cosine α | 0.738060 | 0.738060 |
 | Mean RMS after prompt | ~0.0064 | ~0.0064 |
 | Mean RMS after 20 gen | ~0.0486 | ~0.0485 |
 | Verdict | field differs, surface unread (byte-LM decode) | **field carrying structure (prompt-sensitive)** |
 
 Sample gens (deterministic, role-primed) are **prompt-distinct** (no longer
-identical collapse). Without a surface re-fit they remain embryonic/noisy;
-a tiny offline smoke fine-tune may live under
-`checkpoints/atom_native_readout_fix/` (copy of chat_talk — **not** the
-running stream dir).
+identical collapse). Without a surface re-fit they remain embryonic/noisy.
+
+### Optional tiny smoke fine-tune
+
+`checkpoints/atom_native_readout_fix/` — 2k steps from a **copy** of chat_talk
+(`corpus_train_chat.txt`), stream dir untouched. After 2k: α cosine fell to
+~0.39 (more field separation) but surface logit cosine rose toward ~0.99 as the
+skip/gate adapted under CE — longer surface-focused training still needed for
+fluent decode. Migration-only numbers above are the readout-fix success bar.
 
 ## Tests
 
 - `test/test_generation_smoke.py::FieldReadoutSensitivityTests`
-  - Synthetic distinct α → logit cosine &lt; 0.95
-  - Migrated chat_talk ckpt → Bonjour vs Qui es-tu logit cosine &lt; 0.95
+  - Synthetic distinct α → logit cosine < 0.95
+  - Migrated chat_talk ckpt → Bonjour vs Qui es-tu logit cosine < 0.95
 
 ## Not done (explicit)
 

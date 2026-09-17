@@ -1,18 +1,18 @@
 [probe] loading /workspace/repos/toroidal-fractal-intelligence/checkpoints/atom_native_chat_talk/atom_native.pt (read-only, eval, no optimizer)
 [probe] d_model=64 n_modes=64 step=2100000
 [probe] prompt='Bonjour'
-        RMS 0.005059 -> 0.049053 (norm 0.3238 -> 3.1394) atoms 3 -> 22
-        gen_preview='rap�t �.�WrrUo(��G��Bl�Uo���G��Bl44oC��G��Bl����44o3��GʨBl�:��4UoCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBlt:��44oCj�G'
+        RMS 0.005059 -> 0.039867 (norm 0.3238 -> 2.5515) atoms 3 -> 22
+        gen_preview="<a:'o�L?z:&RjL�zed&er:&R-§z�x&er:&Rj§z�x&er88Rj§z�x&er88R-§z�x�er:2Rj:8Rj§z�x�\nr12RjUPCJO_q�\n/�NA:&Rj:&Rj§z:&Rj:8:�:&Rj:8Rj"
 [probe] prompt='Qui es-tu ?'
-        RMS 0.007600 -> 0.045207 (norm 0.4864 -> 2.8932) atoms 7 -> 26
-        gen_preview='\na�ntruo*� GʜB�S�e�rUo(��G��Bl�Uo���G��Bl�Uo(��G��Bl2UoC��G��Bl����44o3��G�MBl�:��4UoC��GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBlt:��44'
+        RMS 0.007600 -> 0.037659 (norm 0.4864 -> 2.4102) atoms 7 -> 26
+        gen_preview="<at�ce�<to��� �e�(�<to-�tMee�e�<'o��0ted�e�!tg��?�ed�e�\n#o��n:�:'o-:'o4§Med&e�:&R-§Med�er:'R-§zed&er:&R-§z�x&er:&R-:8RjLp�:&Rj:8Rj§z�x�er:&R-:8RjL��:2Rj"
 [probe] prompt='Il était une fois'
-        RMS 0.007744 -> 0.050775 (norm 0.4956 -> 3.2496) atoms 6 -> 25
-        gen_preview='rLp�t �.ÚorUo(jsG��Bl�Uo���G��Bl2UoC��G��Bl44oCj�G��Bl44oCj�GʨBl44oCj�GʨBl44oCj�GʨBl44oCj�GʨBl44oCj�G_�Bl�:��44oCj�GʨBlt:��44oCj�GʨBlt:��44oCj�GʨBlt:��4'
+        RMS 0.007744 -> 0.024378 (norm 0.4956 -> 1.5602) atoms 6 -> 25
+        gen_preview="<V:':'R4§z:&Rj§zeu&er:8R-§z�x&er:8Rj§z�x&er:8R-§z�x&er:8Rj:8Rj§z�x�\nr:8R�!8!P��.�/��m�Ü��8!!P��.�/�m�Ü��8!!P��.W/�m�� ��8J�:t�':'gjL��"
 [probe] prompt='Utilisateur: Bonjour\nAssistant:'
-        RMS 0.005059 -> 0.049053 (norm 0.3238 -> 3.1394) atoms 3 -> 22
-        gen_preview='rap�t �.�WrrUo(��G��Bl�Uo���G��Bl44oC��G��Bl����44o3��GʨBl�:��4UoCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBl�:��44oCj�GʨBlt:��44oCj�G'
-[probe] mean off-diag cosine logits=0.937488 alpha=0.738060
+        RMS 0.005059 -> 0.039867 (norm 0.3238 -> 2.5515) atoms 3 -> 22
+        gen_preview="<a:'o�L?z:&RjL�zed&er:&R-§z�x&er:&Rj§z�x&er88Rj§z�x&er88R-§z�x�er:2Rj:8Rj§z�x�\nr12RjUPCJO_q�\n/�NA:&Rj:&Rj§z:&Rj:8:�:&Rj:8Rj"
+[probe] mean off-diag cosine logits=0.938919 alpha=0.738060
 [probe] reconstruction_succeeds=True field_differs=True
 [probe] wrote /workspace/repos/toroidal-fractal-intelligence/logs/field_probe_report.json
 [probe] wrote /workspace/repos/toroidal-fractal-intelligence/docs/FIELD_PROBE.md

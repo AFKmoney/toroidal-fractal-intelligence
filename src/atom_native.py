@@ -135,15 +135,25 @@ class AtomSurfaceHead(nn.Module):
         self._init_field_readout()
 
     def _init_field_readout(self) -> None:
-        """Identity-on-mean + std residual; Xavier skips. Safe for fresh + migrate."""
+        """Identity-on-mean + std residual; seeded Xavier skips. Safe for fresh + migrate."""
         with torch.no_grad():
             self.field_to_state.weight.zero_()
             eye = torch.eye(self.d_model, device=self.field_to_state.weight.device)
             self.field_to_state.weight[:, : self.d_model].copy_(eye)
             self.field_to_state.weight[:, self.d_model : 2 * self.d_model].copy_(0.5 * eye)
             self.field_to_state.bias.zero_()
-            nn.init.xavier_uniform_(self.field_byte_skip.weight)
-            nn.init.xavier_uniform_(self.field_length_skip.weight)
+            # Deterministic skip init so migrated checkpoints probe reproducibly.
+            gen = torch.Generator(device="cpu")
+            gen.manual_seed(20260917)
+            for module in (self.field_byte_skip, self.field_length_skip):
+                w = module.weight
+                fan_in = w.shape[1]
+                bound = (6.0 / (fan_in + w.shape[0])) ** 0.5
+                w.copy_(
+                    torch.empty_like(w, device="cpu")
+                    .uniform_(-bound, bound, generator=gen)
+                    .to(device=w.device, dtype=w.dtype)
+                )
             self.field_gate.fill_(2.0)
             self.skip_gate.fill_(1.0)
 
