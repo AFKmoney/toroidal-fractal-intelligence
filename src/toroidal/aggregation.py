@@ -10,10 +10,10 @@ class AggregationEngine(nn.Module):
     def __init__(
         self,
         d_model: int = 256,
-        phase_coherence_threshold: float = 0.7,
+        phase_coherence_threshold: float = 0.55,
         energy_threshold: float = 0.3,
         max_depth: int = 5,
-        merge_energy_floor: float = 0.15,
+        merge_energy_floor: float = 0.08,
     ) -> None:
         super().__init__()
         self.d_model = d_model
