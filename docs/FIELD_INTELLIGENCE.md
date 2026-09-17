@@ -125,9 +125,42 @@ PYTHONPATH=. .venv/bin/python tools/probe_field_persistence.py \
 | chat_talk migrate-only | **0.938** | 0.738 | Readout fix success bar |
 | readout_fix ~2k CE | ~0.99 | lower | CE re-kills prompt separation |
 | field_intel 3k (zero/shuf only, w=0.1) | **0.992** | **0.321** | Train fcos(true,zero)≈0.3–0.5 but inter-prompt still collapses |
-| field_intel v2 (α-bank + w=0.45) | _(retrain)_ | | Harder negatives from prior living fields |
+| field_intel v2 2.5k (α-bank + w=0.45) | **0.960** | 0.579 | Prompt separation restored below 0.99 bar |
 
 Lesson: contrasting against **zeroed** α is necessary but not sufficient.
 CE can learn a shared “non-zero field” logit template. Rolling **α bank**
 negatives force surface logits to track *which* field is present.
 
+## How to launch next full train (AFTER stream ends)
+
+Do **not** touch PID holding `checkpoints/atom_native_stream_dialogue/` while it runs.
+When stream finishes, copy its weights then continue with field intel:
+
+```bash
+mkdir -p checkpoints/atom_native_field_intel
+cp checkpoints/atom_native_stream_dialogue/atom_native.pt \
+   checkpoints/atom_native_field_intel/atom_native_src.pt
+
+PYTHONPATH=. .venv/bin/python -u tools/run_atom_native.py \
+  --stream --data-glob 'data/dialogue_shards/*' --chunk-bytes 1048576 --loop-shards \
+  --stream-buffer 2048 \
+  --resume checkpoints/atom_native_field_intel/atom_native_src.pt \
+  --output-dir checkpoints/atom_native_field_intel \
+  --steps 200000 --d-model 64 --n-modes 64 --n-atoms-max 512 \
+  --max-span-bytes 16 --episode-length 512 --no-episode-reset \
+  --atom-flush-every 256 --field-max-rms 3.0 \
+  --learning-rate 1e-4 --surface-learning-rate 3e-4 \
+  --energy-decay-min 0.45 --energy-decay-max 0.95 \
+  --enable-merge --field-loss-weight 0.08 --field-contrast-weight 0.45 \
+  --field-contrast-margin 0.45 --slow-every 4 \
+  --seed 20260917 --log-every 100
+```
+
+Probe:
+
+```bash
+PYTHONPATH=. .venv/bin/python tools/probe_field_persistence.py \
+  --checkpoint checkpoints/atom_native_field_intel/atom_native.pt
+```
+
+Target: surface logit off-diag cosine **≪ 0.99** (v2 smoke hit **0.960**; migrate bar 0.938).

@@ -6,8 +6,14 @@ import torch
 
 from .toroidal.model import ToroidalFractalIntelligence
 from .training.trainer import ToroidalTrainer
-from .io.tokenizer import ToroidalTokenizer
-from .io.data import load_wikitext
+try:
+    from .io.tokenizer import ToroidalTokenizer  # legacy; optional
+except Exception:  # pragma: no cover
+    ToroidalTokenizer = None  # type: ignore
+try:
+    from .io.data import load_wikitext
+except Exception:  # pragma: no cover
+    load_wikitext = None  # type: ignore
 
 
 def create_model(vocab_size=32000, d_model=256, n_modes=256, n_atoms_max=1024, device="cpu"):
